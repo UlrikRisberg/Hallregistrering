@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>Varegg Arena – Hallregistrering</title>
+<meta name="theme-color" content="#10243a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Varegg Arena" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Karla:ital,wght@0,400;0,500;0,700;1,400&display=swap" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="pinGate" class="pin-gate" style="display:none;">
+  <div class="pin-card">
+    <img src="icons/icon-192.png" alt="" class="pin-logo" />
+    <h1 id="pinHallNavn">Varegg Arena</h1>
+    <p class="pin-sub">Tast inn PIN-koden for å registrere</p>
+    <div class="pin-dots" id="pinDots">
+      <span></span><span></span><span></span><span></span>
+    </div>
+    <p class="pin-error" id="pinError">Feil kode – prøv igjen</p>
+    <div class="pin-pad" id="pinPad">
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <button class="ghost" data-k="clear">Tøm</button><button data-k="0">0</button><button class="ghost" data-k="back">⌫</button>
+    </div>
+  </div>
+</div>
+
+<div id="app">
+
+  <header class="topbar">
+    <h1 id="hallTittel">Hallregistrering</h1>
+    <span class="status-dot" id="statusDot" title="Varsler"></span>
+  </header>
+
+  <main>
+
+    <!-- HJEM / REGISTRERING -->
+    <section class="view active" id="view-hjem">
+
+      <div class="due-banner" id="dueBanner">
+        <div class="big" id="dueBig">Laster …</div>
+        <div class="sub" id="dueSub"></div>
+      </div>
+
+      <div class="card" id="registerCard" style="display:none;">
+        <h2 class="section-title">Hvor mange trener nå?</h2>
+        <div class="presets" id="presetGrid"></div>
+        <button class="other-btn" id="btnAnnet">Annet antall …</button>
+        <div id="numpadWrap" style="display:none;">
+          <input type="number" inputmode="numeric" min="0" class="numpad-input" id="numpadInput" placeholder="0" />
+          <button class="action-btn" id="btnRegistrerAnnet">Registrer</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">Neste registreringer i dag</h2>
+        <div id="dagensListe" class="muted">Laster …</div>
+      </div>
+
+    </section>
+
+    <!-- HISTORIKK -->
+    <section class="view" id="view-historikk">
+      <h2 class="section-title">Filtrer</h2>
+      <div class="filter-row">
+        <select id="filtHurtig">
+          <option value="idag">I dag</option>
+          <option value="uke" selected>Denne uken</option>
+          <option value="maned">Denne måneden</option>
+          <option value="ar">I år</option>
+          <option value="egendefinert">Egendefinert periode</option>
+        </select>
+      </div>
+      <div class="filter-row" id="egendefinertRad" style="display:none;">
+        <input type="date" id="filtFra" />
+        <input type="date" id="filtTil" />
+      </div>
+      <div class="filter-row">
+        <select id="filtTime">
+          <option value="">Alle klokkeslett</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <div id="histTabellWrap">
+          <div class="empty-state">Laster registreringer …</div>
+        </div>
+      </div>
+
+      <button class="action-btn" id="btnEksporter">Eksporter til Excel</button>
+      <p class="muted" id="antallTreff" style="margin-top:10px;"></p>
+    </section>
+
+    <!-- INNSTILLINGER -->
+    <section class="view" id="view-innstillinger">
+      <div class="card">
+        <h2 class="section-title">Varsler</h2>
+        <div class="toggle-row">
+          <div>
+            <div>Varsling på denne enheten</div>
+            <div class="muted" id="varselStatusTekst">Sjekker …</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="varselToggle" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p class="muted" style="margin-top:12px;">
+          Timevarsler sendes automatisk fra en gratis tidsplanlegger (GitHub Actions),
+          uavhengig av om appen er åpen. Skru på varsler her for at akkurat denne
+          telefonen skal motta dem.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">Om appen</h2>
+        <p class="muted">
+          Registrerer antall besøkende i <span id="hallNavn2">hallen</span> hver time i
+          angitte åpningstider. Data lagres i Firebase og kan eksporteres til Excel
+          under fanen «Historikk».
+        </p>
+        <p class="muted">Installert som app: <span id="installStatus" class="badge">sjekker …</span></p>
+      </div>
+
+      <div class="card" id="pinLockCard" style="display:none;">
+        <h2 class="section-title">PIN-kode</h2>
+        <p class="muted">Denne telefonen er låst opp med PIN-koden. Lås den igjen hvis telefonen skal brukes av noen andre, eller ligge fremme.</p>
+        <button class="action-btn secondary" id="btnLasApp">Lås appen</button>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="snackbar" id="snackbar">
+    <span id="snackbarText"></span>
+    <button id="snackbarUndo">ANGRE</button>
+  </div>
+
+  <nav class="tabbar">
+    <div class="tabs">
+      <button class="tab-btn active" data-view="hjem"><span class="ic">🏟️</span>Registrer</button>
+      <button class="tab-btn" data-view="historikk"><span class="ic">📊</span>Historikk</button>
+      <button class="tab-btn" data-view="innstillinger"><span class="ic">⚙️</span>Innstillinger</button>
+    </div>
+  </nav>
+
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="firebase-config.js"></script>
+<script src="schedule.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

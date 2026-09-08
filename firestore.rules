@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Registreringene: alle med lenken til appen kan lese og skrive.
+    // (Dere valgte "ingen PIN-kode" for enkelhets skyld - lenken må derfor
+    // kun deles med de ansatte.)
+    match /registrations/{regId} {
+      allow read, write: if true;
+    }
+
+    // Enhets-tokens brukt for push-varsler: appen skriver sin egen token,
+    // og varslings-jobben (GitHub Actions, som bruker en admin-nøkkel og
+    // dermed ikke er omfattet av disse reglene) leser dem alle.
+    match /device_tokens/{tokenId} {
+      allow read, write: if true;
+    }
+  }
+}

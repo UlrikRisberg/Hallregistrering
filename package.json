@@ -1,0 +1,10 @@
+{
+  "name": "hallregistrering-reminder",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Sender timevarsler via Firebase Cloud Messaging for hallregistrering-appen.",
+  "main": "send-reminder.js",
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}
