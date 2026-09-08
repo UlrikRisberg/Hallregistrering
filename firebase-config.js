@@ -7,12 +7,12 @@
 // NB: bruker "self" (ikke "window") fordi denne filen lastes både av selve
 // nettsiden OG av service-worker.js, som ikke har noe "window"-objekt.
 self.FIREBASE_CONFIG = {
-  apiKey: "FYLL_INN_apiKey",
-  authDomain: "FYLL_INN_authDomain",
-  projectId: "FYLL_INN_projectId",
-  storageBucket: "FYLL_INN_storageBucket",
-  messagingSenderId: "FYLL_INN_messagingSenderId",
-  appId: "FYLL_INN_appId",
+  apiKey: "AIzaSyCbuiqZnVO57YLFogipLNGaCSvA3EAdriE",
+  authDomain: "registrering-flerbrukshall.firebaseapp.com",
+  projectId: "registrering-flerbrukshall",
+  storageBucket: "registrering-flerbrukshall.firebasestorage.app",
+  messagingSenderId: "848397348714",
+  appId: "1:848397348714:web:1d002b5dbf954111127f13",
 };
 
 // VAPID-nøkkelen ("Web push-sertifikat") fra Firebase Console -> Prosjektinnstillinger
