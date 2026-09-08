@@ -17,7 +17,7 @@ self.FIREBASE_CONFIG = {
 
 // VAPID-nøkkelen ("Web push-sertifikat") fra Firebase Console -> Prosjektinnstillinger
 // -> Cloud Messaging -> Web Push-sertifikater.
-self.FIREBASE_VAPID_KEY = "FYLL_INN_VAPID_NØKKEL";
+self.FIREBASE_VAPID_KEY = "0103";
 
 // Navnet på hallen (vises øverst i appen).
 self.HALL_NAVN = "Varegg Arena";
@@ -32,4 +32,4 @@ self.HALL_NAVN = "Varegg Arena";
 // Den holder tilfeldige som får tak i lenken ute, men er ikke vanntett mot
 // noen som virkelig prøver.
 // ---------------------------------------------------------------------------
-self.APP_PIN = "1234";
+self.APP_PIN = "0103";
