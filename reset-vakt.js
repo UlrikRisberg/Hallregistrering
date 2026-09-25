@@ -11,6 +11,7 @@
 // får beskjed med én gang via den delte lyttingen i appen.
 
 const admin = require("firebase-admin");
+const path = require("path");
 const { osloDateParts } = require("./schedule.js");
 
 function main() {
@@ -19,7 +20,7 @@ function main() {
     console.error("Mangler GOOGLE_APPLICATION_CREDENTIALS – se GitHub-secreten FIREBASE_SERVICE_ACCOUNT.");
     process.exit(1);
   }
-  const serviceAccount = require(serviceAccountPath);
+  const serviceAccount = require(path.resolve(serviceAccountPath));
 
   // Flere scripts i denne mappen kan kjøre etter hverandre i samme jobb –
   // ikke initialiser Firebase-appen på nytt hvis den allerede finnes.
@@ -46,26 +47,3 @@ async function run() {
   const db = admin.firestore();
   const ref = db.collection("vakt_status").doc("gjeldende");
   const snap = await ref.get();
-
-  if (!snap.exists || snap.data().bekreftet !== true) {
-    console.log("Vaktstatus var allerede 'ikke på vakt' – ingenting å nullstille.");
-    return;
-  }
-
-  await ref.set(
-    {
-      bekreftet: false,
-      dato: dateStr,
-      tid: null,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
-
-  console.log("Vaktstatus nullstilt til 'ikke på vakt' (rødt ikon) for alle enheter.");
-}
-
-main().catch((err) => {
-  console.error("Uventet feil:", err);
-  process.exit(1);
-});
