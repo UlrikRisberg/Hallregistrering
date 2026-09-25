@@ -1,18 +1,10 @@
-// Kjøres hver time av GitHub Actions (.github/workflows/hourly-reminder.yml),
-// akkurat som send-reminder.js. Denne sjekker om klokka (i Oslo-tid) akkurat
-// har passert midnatt, og nullstiller i så fall den felles vaktstatusen i
-// Firestore (vakt_status/gjeldende) til "ikke på vakt" (rødt ikon) – uansett
-// om noen har appen åpen eller ikke.
-//
-// Dette er et sikkerhetsnett i tillegg til appen: appen viser allerede rødt
-// automatisk neste dag (den sjekker om den lagrede datoen er "i dag"), men
-// det krever at appen er åpen/oppdatert på telefonen. Dette scriptet sørger
-// for at selve databasen også nullstilles hver natt, slik at alle enheter
-// får beskjed med én gang via den delte lyttingen i appen.
+// Kjøres hver time av GitHub Actions (.github/workflows/hourly-reminder.yml).
+// Sjekker om klokka (i Oslo-tid) er et av de planlagte registreringstidspunktene,
+// og sender i så fall en push-varsling til alle registrerte telefoner.
 
 const admin = require("firebase-admin");
 const path = require("path");
-const { osloDateParts } = require("./schedule.js");
+const { isScheduledSlot, osloDateParts } = require("./schedule.js");
 
 function main() {
   const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
@@ -22,8 +14,6 @@ function main() {
   }
   const serviceAccount = require(path.resolve(serviceAccountPath));
 
-  // Flere scripts i denne mappen kan kjøre etter hverandre i samme jobb –
-  // ikke initialiser Firebase-appen på nytt hvis den allerede finnes.
   if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
@@ -34,16 +24,65 @@ function main() {
 }
 
 async function run() {
-  const { dateStr, hour } = osloDateParts();
-  console.log(`Sjekker om det er midnatt: ${dateStr} kl. ${hour}:00 (Europe/Oslo)`);
+  const { dateStr, hour, day } = osloDateParts();
+  console.log(`Sjekker tidspunkt: ${dateStr} (ukedag ${day}) kl. ${hour}:00 (Europe/Oslo)`);
 
-  const tvunget = process.env.TVING_RESET === "true";
+  const tvungetTest = process.env.TVING_VARSEL === "true";
 
-  if (hour !== 0 && !tvunget) {
-    console.log("Ikke midnatt (time 00) i Oslo akkurat nå. Avslutter uten å nullstille noe.");
+  if (!isScheduledSlot(day, hour) && !tvungetTest) {
+    console.log("Ikke et planlagt registreringstidspunkt akkurat nå. Avslutter uten å sende noe.");
     return;
   }
 
   const db = admin.firestore();
-  const ref = db.collection("vakt_status").doc("gjeldende");
-  const snap = await ref.get();
+  const tokensSnap = await db.collection("device_tokens").get();
+  const tokens = tokensSnap.docs.map((d) => d.id);
+
+  if (!tokens.length) {
+    console.log("Ingen registrerte enheter (device_tokens er tom) – ingen varsel sendt.");
+    return;
+  }
+
+  const klokke = String(hour).padStart(2, "0") + ":00";
+  const message = {
+    tokens,
+    notification: {
+      title: "Tid for registrering",
+      body: `Hvor mange trener i hallen kl. ${klokke}?`,
+    },
+    data: {
+      date: dateStr,
+      hour: String(hour),
+    },
+    webpush: {
+      fcmOptions: { link: "./index.html" },
+    },
+  };
+
+  const resp = await admin.messaging().sendEachForMulticast(message);
+  console.log(`Sendt: ${resp.successCount} ok, ${resp.failureCount} feilet.`);
+
+  const opprydding = [];
+  resp.responses.forEach((r, i) => {
+    if (!r.success) {
+      const code = r.error && r.error.code;
+      if (
+        code === "messaging/registration-token-not-registered" ||
+        code === "messaging/invalid-registration-token"
+      ) {
+        opprydding.push(db.collection("device_tokens").doc(tokens[i]).delete());
+      } else {
+        console.warn(`Feil for token ${tokens[i]}: ${code}`);
+      }
+    }
+  });
+  if (opprydding.length) {
+    await Promise.all(opprydding);
+    console.log(`Ryddet bort ${opprydding.length} ugyldige token(er).`);
+  }
+}
+
+main().catch((err) => {
+  console.error("Uventet feil:", err);
+  process.exit(1);
+});
