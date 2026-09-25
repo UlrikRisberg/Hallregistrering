@@ -3,6 +3,7 @@
 // og sender i så fall en push-varsling til alle registrerte telefoner.
 
 const admin = require("firebase-admin");
+const path = require("path");
 const { isScheduledSlot, osloDateParts } = require("./schedule.js");
 
 function main() {
@@ -11,7 +12,7 @@ function main() {
     console.error("Mangler GOOGLE_APPLICATION_CREDENTIALS – se GitHub-secreten FIREBASE_SERVICE_ACCOUNT.");
     process.exit(1);
   }
-  const serviceAccount = require(serviceAccountPath);
+  const serviceAccount = require(path.resolve(serviceAccountPath));
 
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
@@ -59,7 +60,6 @@ async function run() {
   const resp = await admin.messaging().sendEachForMulticast(message);
   console.log(`Sendt: ${resp.successCount} ok, ${resp.failureCount} feilet.`);
 
-  // Rydd bort tokens som ikke lenger er gyldige (avinstallert app, utløpt osv.)
   const opprydding = [];
   resp.responses.forEach((r, i) => {
     if (!r.success) {
