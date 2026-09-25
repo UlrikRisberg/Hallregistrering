@@ -14,9 +14,11 @@ function main() {
   }
   const serviceAccount = require(path.resolve(serviceAccountPath));
 
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+  }
 
   return run();
 }
