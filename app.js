@@ -433,18 +433,17 @@ document.getElementById("snackbarUndo").addEventListener("click", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Vaktbekreftelse (lokal, per enhet – bekreftes én gang per dag)
+// Vaktbekreftelse (delt mellom ALLE enheter via Firestore – én felles status)
 // ---------------------------------------------------------------------------
-const VAKT_DATO_KEY = "hallreg_vakt_bekreftet_dato";
-const VAKT_TID_KEY = "hallreg_vakt_bekreftet_tid";
+// Én enkelt, delt "dokument" i Firestore holder styr på om noen er bekreftet
+// på vakt akkurat nå. Alle telefoner lytter på denne (sanntid), slik at når
+// én person trykker, blir ikonet grønt/rødt med én gang hos alle andre også.
+let vaktGjeldende = { bekreftet: false, dato: null, tid: null };
+let vaktLytterStartet = false;
 
 function vaktBekreftetIDag() {
-  try {
-    const { dateStr } = osloDateParts();
-    return localStorage.getItem(VAKT_DATO_KEY) === dateStr;
-  } catch (e) {
-    return false;
-  }
+  const { dateStr } = osloDateParts();
+  return !!vaktGjeldende.bekreftet && vaktGjeldende.dato === dateStr;
 }
 
 function renderVaktStatus() {
@@ -457,31 +456,157 @@ function renderVaktStatus() {
   knapp.classList.toggle("bekreftet", bekreftet);
   if (knappTekst) knappTekst.textContent = bekreftet ? "VAKT REGISTRERT" : "IKKE PÅ VAKT";
   if (bekreftet) {
-    let tid = "";
-    try { tid = localStorage.getItem(VAKT_TID_KEY) || ""; } catch (e) { /* ignore */ }
-    tekst.textContent = tid ? `Bekreftet kl. ${tid}` : "Bekreftet for i dag";
+    tekst.textContent = vaktGjeldende.tid ? `Bekreftet kl. ${vaktGjeldende.tid}` : "Bekreftet for i dag";
   } else {
     tekst.textContent = "Ikke bekreftet ennå";
   }
   if (tabIkon) tabIkon.textContent = bekreftet ? "🟢" : "🔴";
 }
 
-document.getElementById("btnVaktBekreft")?.addEventListener("click", () => {
-  const { dateStr } = osloDateParts();
-  if (vaktBekreftetIDag()) {
-    try {
-      localStorage.removeItem(VAKT_DATO_KEY);
-      localStorage.removeItem(VAKT_TID_KEY);
-    } catch (e) { /* ignore */ }
-  } else {
-    const naa = new Date();
-    const tid = `${String(naa.getHours()).padStart(2, "0")}:${String(naa.getMinutes()).padStart(2, "0")}`;
-    try {
-      localStorage.setItem(VAKT_DATO_KEY, dateStr);
-      localStorage.setItem(VAKT_TID_KEY, tid);
-    } catch (e) { /* ignore */ }
+function startVaktLytting() {
+  if (!db || vaktLytterStartet) return;
+  vaktLytterStartet = true;
+  db.collection("vakt_status")
+    .doc("gjeldende")
+    .onSnapshot(
+      (doc) => {
+        const data = doc.exists ? doc.data() : {};
+        vaktGjeldende = {
+          bekreftet: !!data.bekreftet,
+          dato: data.dato || null,
+          tid: data.tid || null,
+        };
+        renderVaktStatus();
+      },
+      (e) => {
+        console.error("Klarte ikke å lytte på felles vaktstatus", e);
+      }
+    );
+}
+
+document.getElementById("btnVaktBekreft")?.addEventListener("click", async () => {
+  if (!db) {
+    alert("Appen er ikke koblet til Firebase ennå. Se oppsettsguiden.");
+    return;
   }
-  renderVaktStatus();
+  const { dateStr } = osloDateParts();
+  const ref = db.collection("vakt_status").doc("gjeldende");
+  try {
+    if (vaktBekreftetIDag()) {
+      await ref.set(
+        { bekreftet: false, dato: dateStr, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+    } else {
+      const naa = new Date();
+      const tid = `${String(naa.getHours()).padStart(2, "0")}:${String(naa.getMinutes()).padStart(2, "0")}`;
+      await ref.set(
+        { bekreftet: true, dato: dateStr, tid, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+    }
+    // Ikonet/knappen oppdateres automatisk for alle (inkl. denne enheten) via onSnapshot over.
+  } catch (e) {
+    console.error(e);
+    alert("Klarte ikke å oppdatere vaktstatus. Sjekk internettforbindelsen og prøv igjen.");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Dra-for-å-oppdatere (pull-to-refresh)
+// ---------------------------------------------------------------------------
+// Fungerer uansett hvilken fane man står i. Henter fersk data fra Firestore:
+// dagens registreringer/antall (Hjem), historikk-tabellen (hvis den fanen er
+// åpen), og tegner vaktstatusen på nytt. Vaktstatusen i seg selv er allerede
+// sanntidsoppdatert for alle via startVaktLytting()/onSnapshot – dette er en
+// ekstra, tydelig måte å be om en fersk oppdatering av ALT på, for alle faner.
+const PTR_TERSKEL = 70; // px man må dra ned før man slipper for å utløse oppdatering
+let ptrStartY = null;
+let ptrTrekker = false;
+let ptrOppdaterer = false;
+
+function ptrIndikator() {
+  return document.getElementById("ptrIndikator");
+}
+
+function settPtrTrekk(avstand) {
+  const el = ptrIndikator();
+  if (!el) return;
+  const synligAvstand = Math.min(avstand, PTR_TERSKEL * 1.6);
+  el.style.transform = `translate(-50%, ${-60 + synligAvstand}px)`;
+  el.classList.toggle("visible", avstand > 4);
+  el.classList.toggle("klar", avstand >= PTR_TERSKEL);
+}
+
+async function kjorOppdatering() {
+  if (ptrOppdaterer) return;
+  ptrOppdaterer = true;
+  const el = ptrIndikator();
+  if (el) {
+    el.classList.add("loading", "visible");
+    el.style.transform = "translate(-50%, 18px)";
+  }
+  taktilRespons();
+  try {
+    renderDueBanner();
+    if (db) await sjekkEksisterendeRegistrering();
+    const aktivFane = document.querySelector(".tab-btn.active")?.dataset.view;
+    if (aktivFane === "historikk") await lastHistorikk();
+    renderVaktStatus();
+  } catch (e) {
+    console.error("Feil ved manuell oppdatering", e);
+  } finally {
+    setTimeout(() => {
+      ptrOppdaterer = false;
+      if (el) {
+        el.classList.remove("loading", "visible", "klar");
+        el.style.transform = "translate(-50%, -60px)";
+      }
+    }, 400);
+  }
+}
+
+document.addEventListener(
+  "touchstart",
+  (e) => {
+    if (ptrOppdaterer) return;
+    if ((document.scrollingElement || document.documentElement).scrollTop > 0) {
+      ptrStartY = null;
+      ptrTrekker = false;
+      return;
+    }
+    ptrStartY = e.touches[0].clientY;
+    ptrTrekker = true;
+  },
+  { passive: true }
+);
+
+document.addEventListener(
+  "touchmove",
+  (e) => {
+    if (!ptrTrekker || ptrStartY === null || ptrOppdaterer) return;
+    const avstand = e.touches[0].clientY - ptrStartY;
+    if (avstand > 0 && (document.scrollingElement || document.documentElement).scrollTop === 0) {
+      settPtrTrekk(avstand * 0.5); // litt "motstand" for en mer naturlig følelse
+    } else {
+      settPtrTrekk(0);
+    }
+  },
+  { passive: true }
+);
+
+document.addEventListener("touchend", () => {
+  if (!ptrTrekker) return;
+  ptrTrekker = false;
+  const el = ptrIndikator();
+  const klar = el && el.classList.contains("klar");
+  ptrStartY = null;
+  if (klar) {
+    kjorOppdatering();
+  } else if (el) {
+    el.classList.remove("visible");
+    el.style.transform = "translate(-50%, -60px)";
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -690,9 +815,13 @@ function installasjonsstatus() {
 function startApp() {
   renderDueBanner();
   renderVaktStatus();
+  startVaktLytting();
   installasjonsstatus();
   setupServiceWorkerAndMessaging();
   setInterval(renderDueBanner, 60 * 1000);
+  // Denne trengs fortsatt for å rulle ikonet tilbake til rødt automatisk ved
+  // midnatt, selv om ingen trykker på knappen – selve deling mellom enheter
+  // skjer i sanntid via startVaktLytting() over.
   setInterval(renderVaktStatus, 60 * 1000);
 
   if ("serviceWorker" in navigator) {
