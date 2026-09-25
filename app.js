@@ -442,4 +442,223 @@ document.getElementById("btnVaktBekreft")?.addEventListener("click", () => {
 
 // ---------------------------------------------------------------------------
 // Historikk / filter / eksport
-//
+// ---------------------------------------------------------------------------
+const filtTimeSelect = document.getElementById("filtTime");
+for (let h = 0; h < 24; h++) {
+  const opt = document.createElement("option");
+  opt.value = h;
+  opt.textContent = String(h).padStart(2, "0") + ":00";
+  filtTimeSelect.appendChild(opt);
+}
+
+document.getElementById("filtHurtig").addEventListener("change", (e) => {
+  document.getElementById("egendefinertRad").style.display = e.target.value === "egendefinert" ? "flex" : "none";
+  lastHistorikk();
+});
+document.getElementById("filtFra").addEventListener("change", lastHistorikk);
+document.getElementById("filtTil").addEventListener("change", lastHistorikk);
+document.getElementById("filtTime").addEventListener("change", lastHistorikk);
+
+function periodeTilDatoer(valg) {
+  const { dateStr } = osloDateParts();
+  const idag = new Date(dateStr + "T00:00:00");
+  let fra = new Date(idag);
+  let til = new Date(idag);
+  if (valg === "idag") {
+    // fra = til = idag
+  } else if (valg === "uke") {
+    const ukedag = (idag.getDay() + 6) % 7; // mandag = 0
+    fra.setDate(idag.getDate() - ukedag);
+  } else if (valg === "maned") {
+    fra = new Date(idag.getFullYear(), idag.getMonth(), 1);
+  } else if (valg === "ar") {
+    fra = new Date(idag.getFullYear(), 0, 1);
+  }
+  const iso = (d) => {
+    const aar = d.getFullYear();
+    const maned = String(d.getMonth() + 1).padStart(2, "0");
+    const dag = String(d.getDate()).padStart(2, "0");
+    return `${aar}-${maned}-${dag}`;
+  };
+  return { fra: iso(fra), til: iso(til) };
+}
+
+let sisteHistorikkData = [];
+
+async function lastHistorikk() {
+  const wrap = document.getElementById("histTabellWrap");
+  if (!db) {
+    wrap.innerHTML = '<div class="empty-state">Appen er ikke koblet til Firebase ennå.</div>';
+    return;
+  }
+  wrap.innerHTML = '<div class="empty-state">Laster …</div>';
+
+  const valg = document.getElementById("filtHurtig").value;
+  let fra, til;
+  if (valg === "egendefinert") {
+    fra = document.getElementById("filtFra").value;
+    til = document.getElementById("filtTil").value;
+    if (!fra || !til) { wrap.innerHTML = '<div class="empty-state">Velg fra- og til-dato.</div>'; return; }
+  } else {
+    ({ fra, til } = periodeTilDatoer(valg));
+  }
+
+  try {
+    const snap = await db
+      .collection("registrations")
+      .where("date", ">=", fra)
+      .where("date", "<=", til)
+      .orderBy("date")
+      .orderBy("hour")
+      .get();
+
+    let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const timeFilter = document.getElementById("filtTime").value;
+    if (timeFilter !== "") rows = rows.filter((r) => r.hour === parseInt(timeFilter, 10));
+
+    sisteHistorikkData = rows;
+    document.getElementById("antallTreff").textContent = `${rows.length} registrering(er) i valgt periode. Sum: ${rows.reduce((s, r) => s + (r.count || 0), 0)} personer.`;
+
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="empty-state">Ingen registreringer i denne perioden.</div>';
+      return;
+    }
+
+    wrap.innerHTML = `<div style="overflow-x:auto;"><table class="hist">
+      <thead><tr><th>Dato</th><th>Ukedag</th><th>Kl.</th><th>Antall</th><th>Aktivitet(er)</th><th></th></tr></thead>
+      <tbody>${rows
+        .map(
+          (r) => `<tr>
+            <td>${r.date}</td>
+            <td>${r.weekday || ""}</td>
+            <td>${String(r.hour).padStart(2, "0")}:00</td>
+            <td>${r.count}</td>
+            <td>${(r.activities || []).join(", ")}</td>
+            <td><button class="rediger-btn" data-id="${r.id}" data-dato="${r.date}" data-time="${String(r.hour).padStart(2, "0")}:00" data-count="${r.count}" data-activities="${(r.activities || []).join(",")}">Rediger</button></td>
+          </tr>`
+        )
+        .join("")}</tbody>
+    </table></div>`;
+
+    wrap.querySelectorAll(".rediger-btn").forEach((btn) => {
+      btn.addEventListener("click", () => apneRedigering(btn));
+    });
+  } catch (e) {
+    console.error(e);
+    wrap.innerHTML = '<div class="empty-state">Klarte ikke å hente data. (Kan hende Firestore-indeksen må opprettes første gang – se feilmelding i nettleserkonsollen for en lenke som gjør det automatisk.)</div>';
+  }
+}
+
+function apneRedigering(btn) {
+  // Lukk en eventuell annen åpen redigeringsboks først.
+  document.querySelectorAll(".rediger-rad").forEach((el) => el.remove());
+
+  const id = btn.dataset.id;
+  const dato = btn.dataset.dato;
+  const tid = btn.dataset.time;
+  const antallNaa = parseInt(btn.dataset.count, 10) || 0;
+  const aktiviteterNaa = btn.dataset.activities ? btn.dataset.activities.split(",").filter(Boolean) : [];
+  const valgt = new Set(aktiviteterNaa);
+
+  const rad = document.createElement("tr");
+  rad.className = "rediger-rad";
+  const celle = document.createElement("td");
+  celle.colSpan = 6;
+  celle.innerHTML = `
+    <div class="rediger-panel">
+      <p class="muted" style="margin:0 0 8px;">Rediger ${dato} kl. ${tid}</p>
+      <div class="aktivitet-grid" id="redigerAktivitetGrid"></div>
+      <input type="number" inputmode="numeric" min="0" class="numpad-input" id="redigerAntall" value="${antallNaa}" />
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="action-btn secondary" id="redigerAvbryt" type="button">Avbryt</button>
+        <button class="action-btn" id="redigerLagre" type="button">Lagre</button>
+      </div>
+    </div>
+  `;
+  rad.appendChild(celle);
+  btn.closest("tr").after(rad);
+
+  const grid = celle.querySelector("#redigerAktivitetGrid");
+  AKTIVITETER.forEach((navn) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "aktivitet-chip" + (valgt.has(navn) ? " valgt" : "");
+    b.textContent = navn;
+    b.addEventListener("click", () => {
+      if (valgt.has(navn)) valgt.delete(navn);
+      else valgt.add(navn);
+      b.classList.toggle("valgt");
+    });
+    grid.appendChild(b);
+  });
+
+  celle.querySelector("#redigerAvbryt").addEventListener("click", () => rad.remove());
+
+  celle.querySelector("#redigerLagre").addEventListener("click", async () => {
+    const nyttAntallStr = celle.querySelector("#redigerAntall").value;
+    const nyttAntall = parseInt(nyttAntallStr, 10);
+    if (isNaN(nyttAntall) || nyttAntall < 0) {
+      alert("Skriv inn et gyldig antall (0 eller mer).");
+      return;
+    }
+    try {
+      await db.collection("registrations").doc(id).set(
+        {
+          count: nyttAntall,
+          activities: Array.from(valgt),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      lastHistorikk();
+    } catch (e) {
+      console.error(e);
+      alert("Klarte ikke å oppdatere registreringen. Sjekk internettforbindelsen og prøv igjen.");
+    }
+  });
+}
+
+document.getElementById("btnEksporter").addEventListener("click", () => {
+  if (!sisteHistorikkData.length) { alert("Ingen data å eksportere i valgt periode."); return; }
+  const data = sisteHistorikkData.map((r) => ({
+    Dato: r.date,
+    Ukedag: r.weekday || "",
+    Klokkeslett: String(r.hour).padStart(2, "0") + ":00",
+    Antall: r.count,
+    Aktiviteter: (r.activities || []).join(", "),
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Registreringer");
+  XLSX.writeFile(wb, `hallregistrering_${new Date().toISOString().slice(0, 10)}.xlsx`);
+});
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+function installasjonsstatus() {
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  const el = document.getElementById("installStatus");
+  el.textContent = standalone ? "Installert ✓" : "Ikke installert (åpnet i nettleser)";
+  el.classList.toggle("ok", standalone);
+}
+
+function startApp() {
+  renderDueBanner();
+  renderVaktStatus();
+  installasjonsstatus();
+  setupServiceWorkerAndMessaging();
+  setInterval(renderDueBanner, 60 * 1000);
+  setInterval(renderVaktStatus, 60 * 1000);
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      if (event.data && event.data.type === "APNE_REGISTRERING") {
+        document.querySelector('.tab-btn[data-view="hjem"]').click();
+        renderDueBanner();
+      }
+    });
+  }
+}
+
+initPinGate();
