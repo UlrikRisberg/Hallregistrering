@@ -194,6 +194,20 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 // Registreringsvisning
 // ---------------------------------------------------------------------------
 const PRESETS = [0, 5, 10, 15, 20, 25, 30, 40, 50];
+const AKTIVITETER = [
+  "Basketball",
+  "Håndball",
+  "Fotball",
+  "Badminton",
+  "Fleridrett/friidrett",
+  "Volleyball",
+  "Innebandy",
+  "Åpen Hall",
+  "Bordtennis",
+  "Frilek/uorganisert aktivitet",
+];
+let valgteAktiviteter = new Set();
+let sisteAktivSlotId = null;
 let aktivSlot = null; // { dateStr, hour }
 let sisteRegistrering = null; // for angre-knapp
 
@@ -210,11 +224,17 @@ function renderDueBanner() {
 
   if (isScheduledSlot(day, hour)) {
     aktivSlot = { dateStr, hour, day };
+    const slotId = `${dateStr}_${String(hour).padStart(2, "0")}`;
+    if (slotId !== sisteAktivSlotId) {
+      valgteAktiviteter = new Set();
+      sisteAktivSlotId = slotId;
+    }
     banner.classList.remove("idle");
     big.textContent = `Registrer for kl. ${String(hour).padStart(2, "0")}:00`;
     sub.textContent = "Trykk på riktig antall under";
     card.style.display = "block";
     renderPresets();
+    renderAktiviteter();
     sjekkEksisterendeRegistrering();
   } else {
     aktivSlot = null;
@@ -269,6 +289,23 @@ function renderPresets() {
   });
 }
 
+function renderAktiviteter() {
+  const grid = document.getElementById("aktivitetGrid");
+  grid.innerHTML = "";
+  AKTIVITETER.forEach((navn) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "aktivitet-chip" + (valgteAktiviteter.has(navn) ? " valgt" : "");
+    b.textContent = navn;
+    b.addEventListener("click", () => {
+      if (valgteAktiviteter.has(navn)) valgteAktiviteter.delete(navn);
+      else valgteAktiviteter.add(navn);
+      b.classList.toggle("valgt");
+    });
+    grid.appendChild(b);
+  });
+}
+
 document.getElementById("btnAnnet").addEventListener("click", () => {
   document.getElementById("numpadWrap").style.display = "block";
   document.getElementById("numpadInput").focus();
@@ -289,7 +326,12 @@ async function sjekkEksisterendeRegistrering() {
     const doc = await db.collection("registrations").doc(id).get();
     const sub = document.getElementById("dueSub");
     if (doc.exists) {
-      sub.textContent = `Allerede registrert: ${doc.data().count} personer. Trykk på nytt tall for å rette opp.`;
+      const data = doc.data();
+      sub.textContent = `Allerede registrert: ${data.count} personer. Trykk på nytt tall for å rette opp.`;
+      if (Array.isArray(data.activities) && data.activities.length) {
+        valgteAktiviteter = new Set(data.activities);
+        renderAktiviteter();
+      }
     }
   } catch (e) { console.error(e); }
 }
@@ -309,6 +351,7 @@ async function registrer(antall) {
         hour: aktivSlot.hour,
         weekday: ukedagNavn(aktivSlot.day),
         count: antall,
+        activities: Array.from(valgteAktiviteter),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -430,7 +473,7 @@ async function lastHistorikk() {
     }
 
     wrap.innerHTML = `<div style="overflow-x:auto;"><table class="hist">
-      <thead><tr><th>Dato</th><th>Ukedag</th><th>Kl.</th><th>Antall</th><th></th></tr></thead>
+      <thead><tr><th>Dato</th><th>Ukedag</th><th>Kl.</th><th>Antall</th><th>Aktivitet(er)</th><th></th></tr></thead>
       <tbody>${rows
         .map(
           (r) => `<tr>
@@ -438,6 +481,7 @@ async function lastHistorikk() {
             <td>${r.weekday || ""}</td>
             <td>${String(r.hour).padStart(2, "0")}:00</td>
             <td>${r.count}</td>
+            <td>${(r.activities || []).join(", ")}</td>
             <td><button class="rediger-btn" data-id="${r.id}" data-dato="${r.date}" data-time="${String(r.hour).padStart(2, "0")}:00" data-count="${r.count}">Rediger</button></td>
           </tr>`
         )
@@ -479,6 +523,7 @@ document.getElementById("btnEksporter").addEventListener("click", () => {
     Ukedag: r.weekday || "",
     Klokkeslett: String(r.hour).padStart(2, "0") + ":00",
     Antall: r.count,
+    Aktiviteter: (r.activities || []).join(", "),
   }));
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
