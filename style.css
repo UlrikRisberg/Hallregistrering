@@ -244,6 +244,19 @@ table.hist th, table.hist td {
 table.hist th { color: var(--text-dim); font-weight: 600; font-size: 12px; text-transform: uppercase; }
 .empty-state { color: var(--text-dim); text-align: center; padding: 30px 0; font-size: 14px; }
 
+.rediger-btn {
+  background: var(--card-2);
+  color: var(--accent-yellow);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rediger-btn:active { background: var(--accent-yellow); color: var(--accent-yellow-ink); }
+
 .toggle-row {
   display: flex;
   align-items: center;
