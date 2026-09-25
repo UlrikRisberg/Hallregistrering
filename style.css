@@ -19,6 +19,37 @@
 
 * { box-sizing: border-box; }
 
+/* Dra-for-å-oppdatere (pull-to-refresh) – synlig indikator øverst på skjermen,
+   uansett hvilken fane man står i. */
+.ptr-indicator {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -60px);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.ptr-indicator.visible { opacity: 1; }
+.ptr-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 213, 4, 0.25);
+  border-top-color: var(--accent-yellow);
+}
+.ptr-indicator.klar .ptr-spinner { border-top-color: #22c55e; }
+.ptr-indicator.loading .ptr-spinner { animation: ptr-spin 0.7s linear infinite; }
+@keyframes ptr-spin {
+  to { transform: rotate(360deg); }
+}
+
 html, body {
   margin: 0;
   padding: 0;
