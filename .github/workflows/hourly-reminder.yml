@@ -30,22 +30,18 @@ jobs:
           node-version: "20"
 
       - name: Installer avhengigheter
-        working-directory: scripts
         run: npm install
 
       - name: Skriv Firebase-nøkkel til fil
-        working-directory: scripts
         run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > service-account.json
 
       - name: Send varsel hvis det er riktig tidspunkt
-        working-directory: scripts
         env:
           GOOGLE_APPLICATION_CREDENTIALS: service-account.json
           TVING_VARSEL: ${{ github.event.inputs.tving_varsel == 'ja' && 'true' || 'false' }}
         run: node send-reminder.js
 
       - name: Nullstill vaktstatus til rødt hvis det er midnatt
-        working-directory: scripts
         env:
           GOOGLE_APPLICATION_CREDENTIALS: service-account.json
           TVING_RESET: ${{ github.event.inputs.tving_reset == 'ja' && 'true' || 'false' }}
@@ -53,5 +49,4 @@ jobs:
 
       - name: Slett nøkkelfilen
         if: always()
-        working-directory: scripts
         run: rm -f service-account.json
