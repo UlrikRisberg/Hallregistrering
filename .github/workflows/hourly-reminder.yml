@@ -2,11 +2,18 @@ name: Timevarsel for hallregistrering
 
 on:
   schedule:
+    # Kjører hver time, på hele timen (UTC). Selve scriptene regner om til
+    # norsk tid (Europe/Oslo) og gjør bare noe når klokka faktisk er et av de
+    # planlagte registreringstidspunktene (varsel) eller midnatt (nullstill vakt).
     - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
       tving_varsel:
         description: "Send et test-varsel nå, uavhengig av klokkeslett (ja/nei)"
+        required: false
+        default: "nei"
+      tving_reset:
+        description: "Nullstill vaktstatus nå (test), uavhengig av klokkeslett (ja/nei)"
         required: false
         default: "nei"
 
@@ -23,17 +30,28 @@ jobs:
           node-version: "20"
 
       - name: Installer avhengigheter
+        working-directory: scripts
         run: npm install
 
       - name: Skriv Firebase-nøkkel til fil
+        working-directory: scripts
         run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > service-account.json
 
       - name: Send varsel hvis det er riktig tidspunkt
+        working-directory: scripts
         env:
           GOOGLE_APPLICATION_CREDENTIALS: service-account.json
           TVING_VARSEL: ${{ github.event.inputs.tving_varsel == 'ja' && 'true' || 'false' }}
         run: node send-reminder.js
 
+      - name: Nullstill vaktstatus til rødt hvis det er midnatt
+        working-directory: scripts
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: service-account.json
+          TVING_RESET: ${{ github.event.inputs.tving_reset == 'ja' && 'true' || 'false' }}
+        run: node reset-vakt.js
+
       - name: Slett nøkkelfilen
         if: always()
+        working-directory: scripts
         run: rm -f service-account.json
