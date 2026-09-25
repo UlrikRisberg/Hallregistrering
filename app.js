@@ -1,182 +1,445 @@
-<!DOCTYPE html>
-<html lang="nb">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-<title>Varegg Arena – Hallregistrering</title>
-<meta name="theme-color" content="#10243a" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Varegg Arena" />
-<link rel="manifest" href="manifest.json" />
-<link rel="apple-touch-icon" href="icons/icon-192.png" />
-<link rel="icon" href="icons/icon-192.png" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Karla:ital,wght@0,400;0,500;0,700;1,400&display=swap" />
-<link rel="stylesheet" href="style.css" />
-</head>
-<body>
+/* global firebase, HALL_SCHEDULE, hoursForDay, isScheduledSlot, osloDateParts, XLSX */
 
-<div id="pinGate" class="pin-gate" style="display:none;">
-  <div class="pin-card">
-    <img src="icons/icon-192.png" alt="" class="pin-logo" />
-    <h1 id="pinHallNavn">Varegg Arena</h1>
-    <p class="pin-sub">Tast inn PIN-koden for å registrere</p>
-    <div class="pin-dots" id="pinDots">
-      <span></span><span></span><span></span><span></span>
-    </div>
-    <p class="pin-error" id="pinError">Feil kode – prøv igjen</p>
-    <div class="pin-pad" id="pinPad">
-      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
-      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
-      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
-      <button class="ghost" data-k="clear">Tøm</button><button data-k="0">0</button><button class="ghost" data-k="back">⌫</button>
-    </div>
-  </div>
-</div>
+document.getElementById("hallTittel").textContent = window.HALL_NAVN || "Hallregistrering";
+document.getElementById("hallNavn2").textContent = window.HALL_NAVN || "hallen";
+document.getElementById("pinHallNavn").textContent = window.HALL_NAVN || "Hallregistrering";
 
-<div id="app">
+// ---------------------------------------------------------------------------
+// PIN-lås
+// ---------------------------------------------------------------------------
+const PIN_STORAGE_KEY = "hallreg_pin_ok";
+const PIN_REQUIRED = !!(window.APP_PIN && String(window.APP_PIN).length > 0);
 
-  <header class="topbar">
-    <h1 id="hallTittel">Hallregistrering</h1>
-    <span class="status-dot" id="statusDot" title="Varsler"></span>
-  </header>
+function erLastOpp() {
+  if (!PIN_REQUIRED) return true;
+  try { return localStorage.getItem(PIN_STORAGE_KEY) === "1"; } catch (e) { return false; }
+}
 
-  <main>
+function settLastOpp(verdi) {
+  try {
+    if (verdi) localStorage.setItem(PIN_STORAGE_KEY, "1");
+    else localStorage.removeItem(PIN_STORAGE_KEY);
+  } catch (e) { /* ignore */ }
+}
 
-    <!-- HJEM / REGISTRERING -->
-    <section class="view active" id="view-hjem">
+function initPinGate() {
+  const gate = document.getElementById("pinGate");
+  const lockCard = document.getElementById("pinLockCard");
 
-      <div class="due-banner" id="dueBanner">
-        <div class="big" id="dueBig">Laster …</div>
-        <div class="sub" id="dueSub"></div>
-      </div>
+  if (!PIN_REQUIRED) {
+    gate.style.display = "none";
+    lockCard.style.display = "none";
+    startApp();
+    return;
+  }
 
-      <div class="card" id="registerCard" style="display:none;">
-        <h2 class="section-title">Aktivitet (velg én eller flere)</h2>
-        <div class="aktivitet-grid" id="aktivitetGrid"></div>
+  lockCard.style.display = "block";
 
-        <h2 class="section-title">Hvor mange trener nå?</h2>
-        <div class="presets" id="presetGrid"></div>
-        <button class="other-btn" id="btnAnnet">Annet antall …</button>
-        <div id="numpadWrap" style="display:none;">
-          <input type="number" inputmode="numeric" min="0" class="numpad-input" id="numpadInput" placeholder="0" />
-          <button class="action-btn" id="btnRegistrerAnnet">Registrer</button>
-        </div>
-      </div>
+  if (erLastOpp()) {
+    gate.style.display = "none";
+    startApp();
+    return;
+  }
 
-      <div class="card">
-        <h2 class="section-title">Neste registreringer i dag</h2>
-        <div id="dagensListe" class="muted">Laster …</div>
-      </div>
+  gate.style.display = "flex";
+  let inntastet = "";
+  const dotsWrap = document.getElementById("pinDots");
+  const dots = dotsWrap.querySelectorAll("span");
+  const feilTekst = document.getElementById("pinError");
+  const pinLengde = String(window.APP_PIN).length;
 
-    </section>
+  function tegnDots() {
+    dots.forEach((d, i) => d.classList.toggle("filled", i < inntastet.length));
+  }
 
-    <!-- HISTORIKK -->
-    <section class="view" id="view-historikk">
-      <h2 class="section-title">Filtrer</h2>
-      <div class="filter-row">
-        <select id="filtHurtig">
-          <option value="idag">I dag</option>
-          <option value="uke" selected>Denne uken</option>
-          <option value="maned">Denne måneden</option>
-          <option value="ar">I år</option>
-          <option value="egendefinert">Egendefinert periode</option>
-        </select>
-      </div>
-      <div class="filter-row" id="egendefinertRad" style="display:none;">
-        <input type="date" id="filtFra" />
-        <input type="date" id="filtTil" />
-      </div>
-      <div class="filter-row">
-        <select id="filtTime">
-          <option value="">Alle klokkeslett</option>
-        </select>
-      </div>
+  function sjekk() {
+    if (inntastet === String(window.APP_PIN)) {
+      settLastOpp(true);
+      gate.style.display = "none";
+      startApp();
+    } else {
+      feilTekst.classList.add("show");
+      dotsWrap.classList.add("shake");
+      setTimeout(() => {
+        dotsWrap.classList.remove("shake");
+        inntastet = "";
+        tegnDots();
+      }, 350);
+    }
+  }
 
-      <div class="card">
-        <div id="histTabellWrap">
-          <div class="empty-state">Laster registreringer …</div>
-        </div>
-      </div>
+  document.getElementById("pinPad").addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    const k = btn.dataset.k;
+    feilTekst.classList.remove("show");
+    if (k === "clear") { inntastet = ""; tegnDots(); return; }
+    if (k === "back") { inntastet = inntastet.slice(0, -1); tegnDots(); return; }
+    if (inntastet.length >= pinLengde) return;
+    inntastet += k;
+    tegnDots();
+    if (inntastet.length === pinLengde) setTimeout(sjekk, 120);
+  });
+}
 
-      <button class="action-btn" id="btnEksporter">Eksporter til Excel</button>
-      <p class="muted" id="antallTreff" style="margin-top:10px;"></p>
-    </section>
+document.getElementById("btnLasApp")?.addEventListener("click", () => {
+  settLastOpp(false);
+  location.reload();
+});
 
-    <!-- VAKT -->
-    <section class="view" id="view-vakt">
-      <div class="card" style="text-align:center;">
-        <h2 class="section-title">Vaktbekreftelse</h2>
-        <p class="muted" style="margin-bottom:22px;">Trykk for å bekrefte at du er på jobb i dag. Trykk igjen for å angre.</p>
-        <button class="vakt-btn" id="btnVaktBekreft" type="button">✓</button>
-        <p class="muted" id="vaktStatusTekst" style="margin-top:18px; font-weight:700;">Ikke bekreftet ennå</p>
-      </div>
-    </section>
+const CONFIGURED = window.FIREBASE_CONFIG && !String(window.FIREBASE_CONFIG.apiKey).startsWith("FYLL_INN");
 
-    <!-- INNSTILLINGER -->
-    <section class="view" id="view-innstillinger">
-      <div class="card">
-        <h2 class="section-title">Varsler</h2>
-        <div class="toggle-row">
-          <div>
-            <div>Varsling på denne enheten</div>
-            <div class="muted" id="varselStatusTekst">Sjekker …</div>
-          </div>
-          <label class="switch">
-            <input type="checkbox" id="varselToggle" />
-            <span class="slider"></span>
-          </label>
-        </div>
-        <p class="muted" style="margin-top:12px;">
-          Timevarsler sendes automatisk fra en gratis tidsplanlegger (GitHub Actions),
-          uavhengig av om appen er åpen. Skru på varsler her for at akkurat denne
-          telefonen skal motta dem.
-        </p>
-      </div>
+let db = null;
+let messaging = null;
+let swRegistration = null;
 
-      <div class="card">
-        <h2 class="section-title">Om appen</h2>
-        <p class="muted">
-          Registrerer antall besøkende i <span id="hallNavn2">hallen</span> hver time i
-          angitte åpningstider. Data lagres i Firebase og kan eksporteres til Excel
-          under fanen «Historikk».
-        </p>
-        <p class="muted">Installert som app: <span id="installStatus" class="badge">sjekker …</span></p>
-      </div>
+if (CONFIGURED) {
+  firebase.initializeApp(window.FIREBASE_CONFIG);
+  db = firebase.firestore();
+} else {
+  console.warn("Firebase er ikke konfigurert ennå – se firebase-config.js");
+}
 
-      <div class="card" id="pinLockCard" style="display:none;">
-        <h2 class="section-title">PIN-kode</h2>
-        <p class="muted">Denne telefonen er låst opp med PIN-koden. Lås den igjen hvis telefonen skal brukes av noen andre, eller ligge fremme.</p>
-        <button class="action-btn secondary" id="btnLasApp">Lås appen</button>
-      </div>
-    </section>
+// ---------------------------------------------------------------------------
+// Service worker + push-varsler
+// ---------------------------------------------------------------------------
+async function setupServiceWorkerAndMessaging() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    swRegistration = await navigator.serviceWorker.register("service-worker.js");
+  } catch (e) {
+    console.error("Kunne ikke registrere service worker", e);
+    return;
+  }
+  if (!CONFIGURED) return;
+  if (!("PushManager" in window) || !firebase.messaging.isSupported()) {
+    setVarselStatus(false, "Denne nettleseren støtter ikke push-varsler.");
+    return;
+  }
+  messaging = firebase.messaging();
+  const perm = Notification.permission;
+  if (perm === "granted") {
+    await registerToken();
+  } else {
+    setVarselStatus(false, "Varsler er ikke slått på.");
+  }
+}
 
-  </main>
+async function registerToken() {
+  try {
+    const token = await messaging.getToken({
+      vapidKey: window.FIREBASE_VAPID_KEY,
+      serviceWorkerRegistration: swRegistration,
+    });
+    if (token && db) {
+      await db.collection("device_tokens").doc(token).set({
+        token,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        userAgent: navigator.userAgent,
+      });
+      localStorage.setItem("fcm_token", token);
+      setVarselStatus(true, "Varsler er på for denne enheten.");
+      document.getElementById("statusDot").classList.add("online");
+    }
+  } catch (e) {
+    console.error("Feil ved henting av push-token", e);
+    setVarselStatus(false, "Fikk ikke aktivert varsler (se konsoll for detaljer).");
+  }
+}
 
-  <div class="snackbar" id="snackbar">
-    <span id="snackbarText"></span>
-    <button id="snackbarUndo">ANGRE</button>
-  </div>
+async function removeToken() {
+  const token = localStorage.getItem("fcm_token");
+  if (token && db) {
+    try { await db.collection("device_tokens").doc(token).delete(); } catch (e) { /* ignore */ }
+  }
+  localStorage.removeItem("fcm_token");
+  setVarselStatus(false, "Varsler er slått av for denne enheten.");
+  document.getElementById("statusDot").classList.remove("online");
+}
 
-  <nav class="tabbar">
-    <div class="tabs">
-      <button class="tab-btn active" data-view="hjem"><span class="ic">🏟️</span>Registrer</button>
-      <button class="tab-btn" data-view="historikk"><span class="ic">📊</span>Historikk</button>
-      <button class="tab-btn" data-view="vakt"><span class="ic" id="vaktTabIkon">⚪</span>Vakt</button>
-      <button class="tab-btn" data-view="innstillinger"><span class="ic">⚙️</span>Innstillinger</button>
-    </div>
-  </nav>
+function setVarselStatus(on, text) {
+  document.getElementById("varselToggle").checked = on;
+  document.getElementById("varselStatusTekst").textContent = text;
+}
 
-</div>
+document.getElementById("varselToggle").addEventListener("change", async (e) => {
+  if (e.target.checked) {
+    if (!("Notification" in window)) { alert("Denne enheten støtter ikke varsler."); e.target.checked = false; return; }
+    const perm = await Notification.requestPermission();
+    if (perm === "granted") {
+      await registerToken();
+    } else {
+      e.target.checked = false;
+      setVarselStatus(false, "Du må godkjenne varsler i telefonens innstillinger.");
+    }
+  } else {
+    await removeToken();
+  }
+});
 
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="firebase-config.js"></script>
-<script src="schedule.js"></script>
-<script src="app.js"></script>
-</body>
-</html>
+// ---------------------------------------------------------------------------
+// Faner
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("view-" + btn.dataset.view).classList.add("active");
+    if (btn.dataset.view === "historikk") lastHistorikk();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Registreringsvisning
+// ---------------------------------------------------------------------------
+const PRESETS = [0, 5, 10, 15, 20, 25, 30, 40, 50];
+const AKTIVITETER = [
+  "Basketball",
+  "Håndball",
+  "Fotball",
+  "Badminton",
+  "Fleridrett/friidrett",
+  "Volleyball",
+  "Innebandy",
+  "Åpen Hall",
+  "Bordtennis",
+  "Frilek/uorganisert aktivitet",
+];
+let valgteAktiviteter = new Set();
+let sisteAktivSlotId = null;
+let aktivSlot = null; // { dateStr, hour }
+let sisteRegistrering = null; // for angre-knapp
+
+function ukedagNavn(day) {
+  return ["Søndag", "Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag"][day];
+}
+
+function renderDueBanner() {
+  const { dateStr, hour, day } = osloDateParts();
+  const banner = document.getElementById("dueBanner");
+  const big = document.getElementById("dueBig");
+  const sub = document.getElementById("dueSub");
+  const card = document.getElementById("registerCard");
+
+  if (isScheduledSlot(day, hour)) {
+    aktivSlot = { dateStr, hour, day };
+    const slotId = `${dateStr}_${String(hour).padStart(2, "0")}`;
+    if (slotId !== sisteAktivSlotId) {
+      valgteAktiviteter = new Set();
+      sisteAktivSlotId = slotId;
+    }
+    banner.classList.remove("idle");
+    big.textContent = `Registrer for kl. ${String(hour).padStart(2, "0")}:00`;
+    sub.textContent = "Trykk på riktig antall under";
+    card.style.display = "block";
+    renderPresets();
+    renderAktiviteter();
+    sjekkEksisterendeRegistrering();
+  } else {
+    aktivSlot = null;
+    banner.classList.add("idle");
+    const naaste = nesteRegistreringstidspunkt();
+    big.textContent = "Ingen registrering nå";
+    sub.textContent = naaste ? `Neste: ${naaste}` : "";
+    card.style.display = "none";
+  }
+  renderDagensListe(day, hour);
+}
+
+function nesteRegistreringstidspunkt() {
+  // Gå time for time fremover (i Oslo-tid) til vi treffer en gyldig registreringsslot.
+  for (let i = 1; i <= 24 * 8; i++) {
+    const t = new Date(Date.now() + i * 3600 * 1000);
+    const { hour, day } = osloDateParts(t);
+    if (isScheduledSlot(day, hour)) {
+      return `${ukedagNavn(day).toLowerCase()} kl. ${String(hour).padStart(2, "0")}:00`;
+    }
+  }
+  return null;
+}
+
+function renderDagensListe(day, currentHour) {
+  const hours = hoursForDay(day);
+  const el = document.getElementById("dagensListe");
+  if (!hours.length) {
+    el.textContent = "Ingen planlagte registreringer i dag.";
+    return;
+  }
+  el.innerHTML = hours
+    .map((h) => {
+      const passert = h < currentHour;
+      const naa = h === currentHour;
+      const cls = naa ? "ok" : passert ? "" : "warn";
+      const label = naa ? "nå" : passert ? "passert" : "kommer";
+      return `<span class="badge ${naa ? "ok" : ""}" style="margin:2px 4px 2px 0;">${String(h).padStart(2, "0")}:00 · ${label}</span>`;
+    })
+    .join(" ");
+}
+
+function renderPresets() {
+  const grid = document.getElementById("presetGrid");
+  grid.innerHTML = "";
+  PRESETS.forEach((n) => {
+    const b = document.createElement("button");
+    b.className = "preset-btn";
+    b.textContent = n;
+    b.addEventListener("click", () => registrer(n));
+    grid.appendChild(b);
+  });
+}
+
+function renderAktiviteter() {
+  const grid = document.getElementById("aktivitetGrid");
+  grid.innerHTML = "";
+  AKTIVITETER.forEach((navn) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "aktivitet-chip" + (valgteAktiviteter.has(navn) ? " valgt" : "");
+    b.textContent = navn;
+    b.addEventListener("click", () => {
+      if (valgteAktiviteter.has(navn)) valgteAktiviteter.delete(navn);
+      else valgteAktiviteter.add(navn);
+      b.classList.toggle("valgt");
+    });
+    grid.appendChild(b);
+  });
+}
+
+document.getElementById("btnAnnet").addEventListener("click", () => {
+  document.getElementById("numpadWrap").style.display = "block";
+  document.getElementById("numpadInput").focus();
+});
+
+document.getElementById("btnRegistrerAnnet").addEventListener("click", () => {
+  const v = parseInt(document.getElementById("numpadInput").value, 10);
+  if (isNaN(v) || v < 0) { alert("Skriv inn et gyldig antall (0 eller mer)."); return; }
+  registrer(v);
+  document.getElementById("numpadInput").value = "";
+  document.getElementById("numpadWrap").style.display = "none";
+});
+
+async function sjekkEksisterendeRegistrering() {
+  if (!db || !aktivSlot) return;
+  const id = `${aktivSlot.dateStr}_${String(aktivSlot.hour).padStart(2, "0")}`;
+  try {
+    const doc = await db.collection("registrations").doc(id).get();
+    const sub = document.getElementById("dueSub");
+    if (doc.exists) {
+      const data = doc.data();
+      sub.textContent = `Allerede registrert: ${data.count} personer. Trykk på nytt tall for å rette opp.`;
+      if (Array.isArray(data.activities) && data.activities.length) {
+        valgteAktiviteter = new Set(data.activities);
+        renderAktiviteter();
+      }
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function registrer(antall) {
+  if (!aktivSlot) return;
+  if (!db) { alert("Appen er ikke koblet til Firebase ennå. Se oppsettsguiden."); return; }
+  const id = `${aktivSlot.dateStr}_${String(aktivSlot.hour).padStart(2, "0")}`;
+  const ref = db.collection("registrations").doc(id);
+  let forrigeVerdi = null;
+  try {
+    const eksisterende = await ref.get();
+    if (eksisterende.exists) forrigeVerdi = eksisterende.data().count;
+    await ref.set(
+      {
+        date: aktivSlot.dateStr,
+        hour: aktivSlot.hour,
+        weekday: ukedagNavn(aktivSlot.day),
+        count: antall,
+        activities: Array.from(valgteAktiviteter),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    sisteRegistrering = { ref, forrigeVerdi, id };
+    visSnackbar(`Registrert: ${antall} kl. ${String(aktivSlot.hour).padStart(2, "0")}:00`);
+    sjekkEksisterendeRegistrering();
+  } catch (e) {
+    console.error(e);
+    alert("Klarte ikke å lagre registreringen. Sjekk internettforbindelsen og prøv igjen.");
+  }
+}
+
+let snackbarTimer = null;
+function visSnackbar(tekst) {
+  const bar = document.getElementById("snackbar");
+  document.getElementById("snackbarText").textContent = tekst;
+  bar.classList.add("show");
+  clearTimeout(snackbarTimer);
+  snackbarTimer = setTimeout(() => bar.classList.remove("show"), 6000);
+}
+
+document.getElementById("snackbarUndo").addEventListener("click", async () => {
+  if (!sisteRegistrering) return;
+  const { ref, forrigeVerdi } = sisteRegistrering;
+  try {
+    if (forrigeVerdi === null) {
+      await ref.delete();
+    } else {
+      await ref.set({ count: forrigeVerdi, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    }
+    document.getElementById("snackbar").classList.remove("show");
+    sjekkEksisterendeRegistrering();
+  } catch (e) { console.error(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Vaktbekreftelse (lokal, per enhet – bekreftes én gang per dag)
+// ---------------------------------------------------------------------------
+const VAKT_DATO_KEY = "hallreg_vakt_bekreftet_dato";
+const VAKT_TID_KEY = "hallreg_vakt_bekreftet_tid";
+
+function vaktBekreftetIDag() {
+  try {
+    const { dateStr } = osloDateParts();
+    return localStorage.getItem(VAKT_DATO_KEY) === dateStr;
+  } catch (e) {
+    return false;
+  }
+}
+
+function renderVaktStatus() {
+  const bekreftet = vaktBekreftetIDag();
+  const knapp = document.getElementById("btnVaktBekreft");
+  const knappTekst = document.getElementById("vaktKnappTekst");
+  const tekst = document.getElementById("vaktStatusTekst");
+  const tabIkon = document.getElementById("vaktTabIkon");
+  if (!knapp || !tekst) return;
+  knapp.classList.toggle("bekreftet", bekreftet);
+  if (knappTekst) knappTekst.textContent = bekreftet ? "VAKT REGISTRERT" : "IKKE PÅ VAKT";
+  if (bekreftet) {
+    let tid = "";
+    try { tid = localStorage.getItem(VAKT_TID_KEY) || ""; } catch (e) { /* ignore */ }
+    tekst.textContent = tid ? `Bekreftet kl. ${tid}` : "Bekreftet for i dag";
+  } else {
+    tekst.textContent = "Ikke bekreftet ennå";
+  }
+  if (tabIkon) tabIkon.textContent = bekreftet ? "🟢" : "🔴";
+}
+
+document.getElementById("btnVaktBekreft")?.addEventListener("click", () => {
+  const { dateStr } = osloDateParts();
+  if (vaktBekreftetIDag()) {
+    try {
+      localStorage.removeItem(VAKT_DATO_KEY);
+      localStorage.removeItem(VAKT_TID_KEY);
+    } catch (e) { /* ignore */ }
+  } else {
+    const naa = new Date();
+    const tid = `${String(naa.getHours()).padStart(2, "0")}:${String(naa.getMinutes()).padStart(2, "0")}`;
+    try {
+      localStorage.setItem(VAKT_DATO_KEY, dateStr);
+      localStorage.setItem(VAKT_TID_KEY, tid);
+    } catch (e) { /* ignore */ }
+  }
+  renderVaktStatus();
+});
+
+// ---------------------------------------------------------------------------
+// Historikk / filter / eksport
+//
