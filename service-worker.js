@@ -3,7 +3,7 @@
 importScripts("https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging-compat.js");
 
-const CACHE_NAME = "hallreg-cache-v1";
+const CACHE_NAME = "hallreg-cache-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
