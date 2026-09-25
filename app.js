@@ -314,4 +314,171 @@ async function registrer(antall) {
       { merge: true }
     );
     sisteRegistrering = { ref, forrigeVerdi, id };
-    visSnackbar(`Registrert: ${antall} kl.
+    visSnackbar(`Registrert: ${antall} kl. ${String(aktivSlot.hour).padStart(2, "0")}:00`);
+    sjekkEksisterendeRegistrering();
+  } catch (e) {
+    console.error(e);
+    alert("Klarte ikke å lagre registreringen. Sjekk internettforbindelsen og prøv igjen.");
+  }
+}
+
+let snackbarTimer = null;
+function visSnackbar(tekst) {
+  const bar = document.getElementById("snackbar");
+  document.getElementById("snackbarText").textContent = tekst;
+  bar.classList.add("show");
+  clearTimeout(snackbarTimer);
+  snackbarTimer = setTimeout(() => bar.classList.remove("show"), 6000);
+}
+
+document.getElementById("snackbarUndo").addEventListener("click", async () => {
+  if (!sisteRegistrering) return;
+  const { ref, forrigeVerdi } = sisteRegistrering;
+  try {
+    if (forrigeVerdi === null) {
+      await ref.delete();
+    } else {
+      await ref.set({ count: forrigeVerdi, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    }
+    document.getElementById("snackbar").classList.remove("show");
+    sjekkEksisterendeRegistrering();
+  } catch (e) { console.error(e); }
+});
+
+// ---------------------------------------------------------------------------
+// Historikk / filter / eksport
+// ---------------------------------------------------------------------------
+const filtTimeSelect = document.getElementById("filtTime");
+for (let h = 0; h < 24; h++) {
+  const opt = document.createElement("option");
+  opt.value = h;
+  opt.textContent = String(h).padStart(2, "0") + ":00";
+  filtTimeSelect.appendChild(opt);
+}
+
+document.getElementById("filtHurtig").addEventListener("change", (e) => {
+  document.getElementById("egendefinertRad").style.display = e.target.value === "egendefinert" ? "flex" : "none";
+  lastHistorikk();
+});
+document.getElementById("filtFra").addEventListener("change", lastHistorikk);
+document.getElementById("filtTil").addEventListener("change", lastHistorikk);
+document.getElementById("filtTime").addEventListener("change", lastHistorikk);
+
+function periodeTilDatoer(valg) {
+  const { dateStr } = osloDateParts();
+  const idag = new Date(dateStr + "T00:00:00");
+  let fra = new Date(idag);
+  let til = new Date(idag);
+  if (valg === "idag") {
+    // fra = til = idag
+  } else if (valg === "uke") {
+    const ukedag = (idag.getDay() + 6) % 7; // mandag = 0
+    fra.setDate(idag.getDate() - ukedag);
+  } else if (valg === "maned") {
+    fra = new Date(idag.getFullYear(), idag.getMonth(), 1);
+  } else if (valg === "ar") {
+    fra = new Date(idag.getFullYear(), 0, 1);
+  }
+  const iso = (d) => {
+    const aar = d.getFullYear();
+    const maned = String(d.getMonth() + 1).padStart(2, "0");
+    const dag = String(d.getDate()).padStart(2, "0");
+    return `${aar}-${maned}-${dag}`;
+  };
+  return { fra: iso(fra), til: iso(til) };
+}
+
+let sisteHistorikkData = [];
+
+async function lastHistorikk() {
+  const wrap = document.getElementById("histTabellWrap");
+  if (!db) {
+    wrap.innerHTML = '<div class="empty-state">Appen er ikke koblet til Firebase ennå.</div>';
+    return;
+  }
+  wrap.innerHTML = '<div class="empty-state">Laster …</div>';
+
+  const valg = document.getElementById("filtHurtig").value;
+  let fra, til;
+  if (valg === "egendefinert") {
+    fra = document.getElementById("filtFra").value;
+    til = document.getElementById("filtTil").value;
+    if (!fra || !til) { wrap.innerHTML = '<div class="empty-state">Velg fra- og til-dato.</div>'; return; }
+  } else {
+    ({ fra, til } = periodeTilDatoer(valg));
+  }
+
+  try {
+    const snap = await db
+      .collection("registrations")
+      .where("date", ">=", fra)
+      .where("date", "<=", til)
+      .orderBy("date")
+      .orderBy("hour")
+      .get();
+
+    let rows = snap.docs.map((d) => d.data());
+    const timeFilter = document.getElementById("filtTime").value;
+    if (timeFilter !== "") rows = rows.filter((r) => r.hour === parseInt(timeFilter, 10));
+
+    sisteHistorikkData = rows;
+    document.getElementById("antallTreff").textContent = `${rows.length} registrering(er) i valgt periode. Sum: ${rows.reduce((s, r) => s + (r.count || 0), 0)} personer.`;
+
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="empty-state">Ingen registreringer i denne perioden.</div>';
+      return;
+    }
+
+    wrap.innerHTML = `<div style="overflow-x:auto;"><table class="hist">
+      <thead><tr><th>Dato</th><th>Ukedag</th><th>Kl.</th><th>Antall</th></tr></thead>
+      <tbody>${rows
+        .map((r) => `<tr><td>${r.date}</td><td>${r.weekday || ""}</td><td>${String(r.hour).padStart(2, "0")}:00</td><td>${r.count}</td></tr>`)
+        .join("")}</tbody>
+    </table></div>`;
+  } catch (e) {
+    console.error(e);
+    wrap.innerHTML = '<div class="empty-state">Klarte ikke å hente data. (Kan hende Firestore-indeksen må opprettes første gang – se feilmelding i nettleserkonsollen for en lenke som gjør det automatisk.)</div>';
+  }
+}
+
+document.getElementById("btnEksporter").addEventListener("click", () => {
+  if (!sisteHistorikkData.length) { alert("Ingen data å eksportere i valgt periode."); return; }
+  const data = sisteHistorikkData.map((r) => ({
+    Dato: r.date,
+    Ukedag: r.weekday || "",
+    Klokkeslett: String(r.hour).padStart(2, "0") + ":00",
+    Antall: r.count,
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Registreringer");
+  XLSX.writeFile(wb, `hallregistrering_${new Date().toISOString().slice(0, 10)}.xlsx`);
+});
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+function installasjonsstatus() {
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  const el = document.getElementById("installStatus");
+  el.textContent = standalone ? "Installert ✓" : "Ikke installert (åpnet i nettleser)";
+  el.classList.toggle("ok", standalone);
+}
+
+function startApp() {
+  renderDueBanner();
+  installasjonsstatus();
+  setupServiceWorkerAndMessaging();
+  setInterval(renderDueBanner, 60 * 1000);
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      if (event.data && event.data.type === "APNE_REGISTRERING") {
+        document.querySelector('.tab-btn[data-view="hjem"]').click();
+        renderDueBanner();
+      }
+    });
+  }
+}
+
+initPinGate();
