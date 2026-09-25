@@ -417,7 +417,7 @@ async function lastHistorikk() {
       .orderBy("hour")
       .get();
 
-    let rows = snap.docs.map((d) => d.data());
+    let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     const timeFilter = document.getElementById("filtTime").value;
     if (timeFilter !== "") rows = rows.filter((r) => r.hour === parseInt(timeFilter, 10));
 
@@ -430,11 +430,42 @@ async function lastHistorikk() {
     }
 
     wrap.innerHTML = `<div style="overflow-x:auto;"><table class="hist">
-      <thead><tr><th>Dato</th><th>Ukedag</th><th>Kl.</th><th>Antall</th></tr></thead>
+      <thead><tr><th>Dato</th><th>Ukedag</th><th>Kl.</th><th>Antall</th><th></th></tr></thead>
       <tbody>${rows
-        .map((r) => `<tr><td>${r.date}</td><td>${r.weekday || ""}</td><td>${String(r.hour).padStart(2, "0")}:00</td><td>${r.count}</td></tr>`)
+        .map(
+          (r) => `<tr>
+            <td>${r.date}</td>
+            <td>${r.weekday || ""}</td>
+            <td>${String(r.hour).padStart(2, "0")}:00</td>
+            <td>${r.count}</td>
+            <td><button class="rediger-btn" data-id="${r.id}" data-dato="${r.date}" data-time="${String(r.hour).padStart(2, "0")}:00" data-count="${r.count}">Rediger</button></td>
+          </tr>`
+        )
         .join("")}</tbody>
     </table></div>`;
+
+    wrap.querySelectorAll(".rediger-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const gammelt = btn.dataset.count;
+        const nyttStr = window.prompt(`Nytt antall for ${btn.dataset.dato} kl. ${btn.dataset.time}:`, gammelt);
+        if (nyttStr === null) return; // avbrutt
+        const nytt = parseInt(nyttStr, 10);
+        if (isNaN(nytt) || nytt < 0) {
+          alert("Skriv inn et gyldig antall (0 eller mer).");
+          return;
+        }
+        try {
+          await db.collection("registrations").doc(btn.dataset.id).set(
+            { count: nytt, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
+            { merge: true }
+          );
+          lastHistorikk();
+        } catch (e) {
+          console.error(e);
+          alert("Klarte ikke å oppdatere registreringen. Sjekk internettforbindelsen og prøv igjen.");
+        }
+      });
+    });
   } catch (e) {
     console.error(e);
     wrap.innerHTML = '<div class="empty-state">Klarte ikke å hente data. (Kan hende Firestore-indeksen må opprettes første gang – se feilmelding i nettleserkonsollen for en lenke som gjør det automatisk.)</div>';
