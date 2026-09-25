@@ -1,8 +1,11 @@
-// Speiler ../schedule.js (samme regler), men skrevet som ren Node-modul
-// siden GitHub Actions kjører dette uten nettleser.
+// ---------------------------------------------------------------------------
+// Vaktplan / registreringstidspunkter.
+// Denne filen brukes både av selve appen (index.html) og av send-reminder.js
+// som kjører på GitHub sin klokke.
+// Hvis dere endrer åpningstidene til hallen, endres det kun her.
 //
-// VIKTIG: Hvis dere endrer åpningstidene i ../schedule.js, må dere gjøre
-// den samme endringen her.
+// day: 0=søndag, 1=mandag, 2=tirsdag, 3=onsdag, 4=torsdag, 5=fredag, 6=lørdag
+// ---------------------------------------------------------------------------
 const HALL_SCHEDULE = [
   { days: [1, 2, 3, 4, 5], hours: [16, 17, 18, 19, 20, 21, 22] }, // man-fre
   { days: [6], hours: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18] }, // lørdag
@@ -39,4 +42,6 @@ function osloDateParts(date = new Date()) {
   };
 }
 
-module.exports = { HALL_SCHEDULE, hoursForDay, isScheduledSlot, osloDateParts };
+if (typeof module !== "undefined") {
+  module.exports = { HALL_SCHEDULE, hoursForDay, isScheduledSlot, osloDateParts };
+}
