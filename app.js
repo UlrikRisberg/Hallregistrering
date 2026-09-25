@@ -5,6 +5,27 @@ document.getElementById("hallNavn2").textContent = window.HALL_NAVN || "hallen";
 document.getElementById("pinHallNavn").textContent = window.HALL_NAVN || "Hallregistrering";
 
 // ---------------------------------------------------------------------------
+// Taktil respons (vibrasjon) ved trykk – som når man skriver SMS.
+// Merk: dette fungerer kun på enheter/nettlesere som støtter Vibration API
+// (bl.a. Android/Chrome). iPhone/Safari støtter ikke denne funksjonen i det
+// hele tatt (Apple har ikke lagt den til), så der vil ingenting merkes –
+// appen fungerer likevel helt normalt.
+function taktilRespons() {
+  try {
+    if (navigator.vibrate) navigator.vibrate(15);
+  } catch (e) { /* ignore */ }
+}
+
+document.addEventListener(
+  "click",
+  (e) => {
+    const el = e.target.closest("button, .switch, input[type='checkbox']");
+    if (el) taktilRespons();
+  },
+  true
+);
+
+// ---------------------------------------------------------------------------
 // PIN-lås
 // ---------------------------------------------------------------------------
 const PIN_STORAGE_KEY = "hallreg_pin_ok";
@@ -200,11 +221,18 @@ document.getElementById("varselToggle").addEventListener("change", async (e) => 
 // ---------------------------------------------------------------------------
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
+    const varAlleredeAktiv = btn.classList.contains("active");
     document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
     document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById("view-" + btn.dataset.view).classList.add("active");
     if (btn.dataset.view === "historikk") lastHistorikk();
+    if (btn.dataset.view === "hjem" && !varAlleredeAktiv) {
+      // Hver gang man navigerer inn på registreringssiden skal aktivitetene
+      // være tomme igjen – de skal velges på nytt hver gang.
+      valgteAktiviteter = new Set();
+      renderAktiviteter();
+    }
   });
 });
 
@@ -346,10 +374,8 @@ async function sjekkEksisterendeRegistrering() {
     if (doc.exists) {
       const data = doc.data();
       sub.textContent = `Allerede registrert: ${data.count} personer. Trykk på nytt tall for å rette opp.`;
-      if (Array.isArray(data.activities) && data.activities.length) {
-        valgteAktiviteter = new Set(data.activities);
-        renderAktiviteter();
-      }
+      // Merk: aktivitetene fylles bevisst IKKE ut på nytt her – de skal alltid
+      // være tomme til man selv trykker på dem.
     }
   } catch (e) { console.error(e); }
 }
