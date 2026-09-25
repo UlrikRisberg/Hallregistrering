@@ -105,6 +105,16 @@
       <p class="muted" id="antallTreff" style="margin-top:10px;"></p>
     </section>
 
+    <!-- VAKT -->
+    <section class="view" id="view-vakt">
+      <div class="card" style="text-align:center;">
+        <h2 class="section-title">Vaktbekreftelse</h2>
+        <p class="muted" style="margin-bottom:22px;">Trykk for å bekrefte at du er på jobb i dag. Trykk igjen for å angre.</p>
+        <button class="vakt-btn" id="btnVaktBekreft" type="button">✓</button>
+        <p class="muted" id="vaktStatusTekst" style="margin-top:18px; font-weight:700;">Ikke bekreftet ennå</p>
+      </div>
+    </section>
+
     <!-- INNSTILLINGER -->
     <section class="view" id="view-innstillinger">
       <div class="card">
@@ -154,6 +164,7 @@
     <div class="tabs">
       <button class="tab-btn active" data-view="hjem"><span class="ic">🏟️</span>Registrer</button>
       <button class="tab-btn" data-view="historikk"><span class="ic">📊</span>Historikk</button>
+      <button class="tab-btn" data-view="vakt"><span class="ic" id="vaktTabIkon">⚪</span>Vakt</button>
       <button class="tab-btn" data-view="innstillinger"><span class="ic">⚙️</span>Innstillinger</button>
     </div>
   </nav>
