@@ -103,10 +103,28 @@ if (CONFIGURED) {
 // ---------------------------------------------------------------------------
 // Service worker + push-varsler
 // ---------------------------------------------------------------------------
+// Sørger for at appen oppdaterer seg selv automatisk hos alle brukere når det
+// legges ut en ny versjon på GitHub – uten at noen må slette appen eller
+// nettleserdata manuelt.
+let harLastetPaNyEtterOppdatering = false;
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (harLastetPaNyEtterOppdatering) return;
+    harLastetPaNyEtterOppdatering = true;
+    window.location.reload();
+  });
+}
+
 async function setupServiceWorkerAndMessaging() {
   if (!("serviceWorker" in navigator)) return;
   try {
     swRegistration = await navigator.serviceWorker.register("service-worker.js");
+    // Sjekk med en gang om det finnes en nyere versjon, og fortsett å sjekke
+    // jevnlig mens appen er åpen (nyttig når en vakt har appen åpen lenge).
+    swRegistration.update();
+    setInterval(() => {
+      if (swRegistration) swRegistration.update();
+    }, 5 * 60 * 1000);
   } catch (e) {
     console.error("Kunne ikke registrere service worker", e);
     return;
