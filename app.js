@@ -482,38 +482,88 @@ async function lastHistorikk() {
             <td>${String(r.hour).padStart(2, "0")}:00</td>
             <td>${r.count}</td>
             <td>${(r.activities || []).join(", ")}</td>
-            <td><button class="rediger-btn" data-id="${r.id}" data-dato="${r.date}" data-time="${String(r.hour).padStart(2, "0")}:00" data-count="${r.count}">Rediger</button></td>
+            <td><button class="rediger-btn" data-id="${r.id}" data-dato="${r.date}" data-time="${String(r.hour).padStart(2, "0")}:00" data-count="${r.count}" data-activities="${(r.activities || []).join(",")}">Rediger</button></td>
           </tr>`
         )
         .join("")}</tbody>
     </table></div>`;
 
     wrap.querySelectorAll(".rediger-btn").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const gammelt = btn.dataset.count;
-        const nyttStr = window.prompt(`Nytt antall for ${btn.dataset.dato} kl. ${btn.dataset.time}:`, gammelt);
-        if (nyttStr === null) return; // avbrutt
-        const nytt = parseInt(nyttStr, 10);
-        if (isNaN(nytt) || nytt < 0) {
-          alert("Skriv inn et gyldig antall (0 eller mer).");
-          return;
-        }
-        try {
-          await db.collection("registrations").doc(btn.dataset.id).set(
-            { count: nytt, updatedAt: firebase.firestore.FieldValue.serverTimestamp() },
-            { merge: true }
-          );
-          lastHistorikk();
-        } catch (e) {
-          console.error(e);
-          alert("Klarte ikke å oppdatere registreringen. Sjekk internettforbindelsen og prøv igjen.");
-        }
-      });
+      btn.addEventListener("click", () => apneRedigering(btn));
     });
   } catch (e) {
     console.error(e);
     wrap.innerHTML = '<div class="empty-state">Klarte ikke å hente data. (Kan hende Firestore-indeksen må opprettes første gang – se feilmelding i nettleserkonsollen for en lenke som gjør det automatisk.)</div>';
   }
+}
+
+function apneRedigering(btn) {
+  // Lukk en eventuell annen åpen redigeringsboks først.
+  document.querySelectorAll(".rediger-rad").forEach((el) => el.remove());
+
+  const id = btn.dataset.id;
+  const dato = btn.dataset.dato;
+  const tid = btn.dataset.time;
+  const antallNaa = parseInt(btn.dataset.count, 10) || 0;
+  const aktiviteterNaa = btn.dataset.activities ? btn.dataset.activities.split(",").filter(Boolean) : [];
+  const valgt = new Set(aktiviteterNaa);
+
+  const rad = document.createElement("tr");
+  rad.className = "rediger-rad";
+  const celle = document.createElement("td");
+  celle.colSpan = 6;
+  celle.innerHTML = `
+    <div class="rediger-panel">
+      <p class="muted" style="margin:0 0 8px;">Rediger ${dato} kl. ${tid}</p>
+      <div class="aktivitet-grid" id="redigerAktivitetGrid"></div>
+      <input type="number" inputmode="numeric" min="0" class="numpad-input" id="redigerAntall" value="${antallNaa}" />
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="action-btn secondary" id="redigerAvbryt" type="button">Avbryt</button>
+        <button class="action-btn" id="redigerLagre" type="button">Lagre</button>
+      </div>
+    </div>
+  `;
+  rad.appendChild(celle);
+  btn.closest("tr").after(rad);
+
+  const grid = celle.querySelector("#redigerAktivitetGrid");
+  AKTIVITETER.forEach((navn) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "aktivitet-chip" + (valgt.has(navn) ? " valgt" : "");
+    b.textContent = navn;
+    b.addEventListener("click", () => {
+      if (valgt.has(navn)) valgt.delete(navn);
+      else valgt.add(navn);
+      b.classList.toggle("valgt");
+    });
+    grid.appendChild(b);
+  });
+
+  celle.querySelector("#redigerAvbryt").addEventListener("click", () => rad.remove());
+
+  celle.querySelector("#redigerLagre").addEventListener("click", async () => {
+    const nyttAntallStr = celle.querySelector("#redigerAntall").value;
+    const nyttAntall = parseInt(nyttAntallStr, 10);
+    if (isNaN(nyttAntall) || nyttAntall < 0) {
+      alert("Skriv inn et gyldig antall (0 eller mer).");
+      return;
+    }
+    try {
+      await db.collection("registrations").doc(id).set(
+        {
+          count: nyttAntall,
+          activities: Array.from(valgt),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      lastHistorikk();
+    } catch (e) {
+      console.error(e);
+      alert("Klarte ikke å oppdatere registreringen. Sjekk internettforbindelsen og prøv igjen.");
+    }
+  });
 }
 
 document.getElementById("btnEksporter").addEventListener("click", () => {
