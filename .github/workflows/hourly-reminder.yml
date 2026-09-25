@@ -1,0 +1,39 @@
+name: Timevarsel for hallregistrering
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      tving_varsel:
+        description: "Send et test-varsel nå, uavhengig av klokkeslett (ja/nei)"
+        required: false
+        default: "nei"
+
+jobs:
+  send-reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sjekk ut repoet
+        uses: actions/checkout@v4
+
+      - name: Sett opp Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Installer avhengigheter
+        run: npm install
+
+      - name: Skriv Firebase-nøkkel til fil
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > service-account.json
+
+      - name: Send varsel hvis det er riktig tidspunkt
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: service-account.json
+          TVING_VARSEL: ${{ github.event.inputs.tving_varsel == 'ja' && 'true' || 'false' }}
+        run: node send-reminder.js
+
+      - name: Slett nøkkelfilen
+        if: always()
+        run: rm -f service-account.json
