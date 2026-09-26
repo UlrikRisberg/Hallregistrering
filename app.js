@@ -171,6 +171,14 @@ async function registerToken() {
       serviceWorkerRegistration: swRegistration,
     });
     if (token && db) {
+      const forrigeToken = localStorage.getItem("fcm_token");
+      if (forrigeToken && forrigeToken !== token) {
+        // Firebase har byttet ut push-nøkkelen for denne telefonen (skjer
+        // innimellom, f.eks. etter en app-oppdatering). Slett den gamle
+        // nøkkelen først, ellers mottar denne telefonen varsler to ganger –
+        // én gang per nøkkel.
+        try { await db.collection("device_tokens").doc(forrigeToken).delete(); } catch (e) { /* ignore */ }
+      }
       await db.collection("device_tokens").doc(token).set({
         token,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -256,6 +264,23 @@ let valgteAktiviteter = new Set();
 let sisteAktivSlotId = null;
 let aktivSlot = null; // { dateStr, hour }
 let sisteRegistrering = null; // for angre-knapp
+let harRegistrertGjeldendeSlot = false;
+
+// ---------------------------------------------------------------------------
+// Rødt tall-ikon (badge) på selve app-ikonet når det er en registrering som
+// venter og ingen har fylt den ut ennå. Fungerer på iPhone (Safari 16.4+,
+// installert som app) og de fleste Android-nettlesere. Der det ikke støttes,
+// skjer det bare ingenting – appen fungerer likevel helt normalt.
+// ---------------------------------------------------------------------------
+function oppdaterAppIkonBadge() {
+  try {
+    if (aktivSlot && !harRegistrertGjeldendeSlot) {
+      if ("setAppBadge" in navigator) navigator.setAppBadge(1);
+    } else {
+      if ("clearAppBadge" in navigator) navigator.clearAppBadge();
+    }
+  } catch (e) { /* ignore */ }
+}
 
 function ukedagNavn(day) {
   return ["Søndag", "Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag"][day];
@@ -274,6 +299,7 @@ function renderDueBanner() {
     if (slotId !== sisteAktivSlotId) {
       valgteAktiviteter = new Set();
       sisteAktivSlotId = slotId;
+      harRegistrertGjeldendeSlot = false;
     }
     banner.classList.remove("idle");
     big.textContent = `Registrer for kl. ${String(hour).padStart(2, "0")}:00`;
@@ -282,8 +308,11 @@ function renderDueBanner() {
     renderPresets();
     renderAktiviteter();
     sjekkEksisterendeRegistrering();
+    oppdaterAppIkonBadge();
   } else {
     aktivSlot = null;
+    harRegistrertGjeldendeSlot = false;
+    oppdaterAppIkonBadge();
     banner.classList.add("idle");
     const naaste = nesteRegistreringstidspunkt();
     big.textContent = "Ingen registrering nå";
@@ -371,12 +400,14 @@ async function sjekkEksisterendeRegistrering() {
   try {
     const doc = await db.collection("registrations").doc(id).get();
     const sub = document.getElementById("dueSub");
+    harRegistrertGjeldendeSlot = doc.exists;
     if (doc.exists) {
       const data = doc.data();
       sub.textContent = `Allerede registrert: ${data.count} personer. Trykk på nytt tall for å rette opp.`;
       // Merk: aktivitetene fylles bevisst IKKE ut på nytt her – de skal alltid
       // være tomme til man selv trykker på dem.
     }
+    oppdaterAppIkonBadge();
   } catch (e) { console.error(e); }
 }
 
