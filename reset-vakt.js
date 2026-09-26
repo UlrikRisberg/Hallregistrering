@@ -1,18 +1,22 @@
-// Kjøres hver time av GitHub Actions (.github/workflows/hourly-reminder.yml),
-// akkurat som send-reminder.js. Denne sjekker om klokka (i Oslo-tid) akkurat
-// har passert midnatt, og nullstiller i så fall den felles vaktstatusen i
-// Firestore (vakt_status/gjeldende) til "ikke på vakt" (rødt ikon) – uansett
-// om noen har appen åpen eller ikke.
-//
-// Dette er et sikkerhetsnett i tillegg til appen: appen viser allerede rødt
-// automatisk neste dag (den sjekker om den lagrede datoen er "i dag"), men
-// det krever at appen er åpen/oppdatert på telefonen. Dette scriptet sørger
-// for at selve databasen også nullstilles hver natt, slik at alle enheter
-// får beskjed med én gang via den delte lyttingen i appen.
-
 const admin = require("firebase-admin");
 const path = require("path");
 const { osloDateParts } = require("./schedule.js");
+
+// ---------------------------------------------------------------------------
+// Nullstiller vaktstatus (grønt ikon -> rødt ikon) ved de faste vaktskiftene:
+//   - lørdag kl. 13:30 (Europe/Oslo)
+//   - søndag kl. 15:30 (Europe/Oslo)
+//
+// Dette kommer I TILLEGG til den vanlige midnatts-nullstillingen som allerede
+// gjøres av reset-vakt.js. Denne workflowen (se
+// .github/workflows/vaktskifte-reset.yml) kjører hvert 30. minutt, hele
+// døgnet, hele uken – og dette skriptet sjekker selv om klokka i Oslo faktisk
+// er ett av vaktskifte-tidspunktene før det gjør noe. Utenom akkurat de to
+// tidspunktene er dette skriptet en "no-op" (gjør ingenting).
+//
+// Vi sjekker "minute >= 25" i stedet for "minute === 30" for å tåle at
+// GitHub sin klokke noen ganger kjører jobben noen minutter forsinket.
+// ---------------------------------------------------------------------------
 
 function main() {
   const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
@@ -21,49 +25,39 @@ function main() {
     process.exit(1);
   }
   const serviceAccount = require(path.resolve(serviceAccountPath));
-
-  // Flere scripts i denne mappen kan kjøre etter hverandre i samme jobb –
-  // ikke initialiser Firebase-appen på nytt hvis den allerede finnes.
   if (!admin.apps.length) {
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
   }
-
   return run();
 }
 
 async function run() {
-  const { dateStr, hour } = osloDateParts();
-  console.log(`Sjekker om det er midnatt: ${dateStr} kl. ${hour}:00 (Europe/Oslo)`);
+  const { dateStr, hour, minute, day } = osloDateParts();
+  console.log(
+    `Sjekker vaktskifte: ${dateStr}, ukedag=${day} (0=søndag ... 6=lørdag), kl. ${hour}:${String(minute).padStart(2, "0")} (Europe/Oslo)`
+  );
 
   const tvunget = process.env.TVING_RESET === "true";
+  const erLordagVaktskifte = day === 6 && hour === 13 && minute >= 25;
+  const erSondagVaktskifte = day === 0 && hour === 15 && minute >= 25;
 
-  if (hour !== 0 && !tvunget) {
-    console.log("Ikke midnatt (time 00) i Oslo akkurat nå. Avslutter uten å nullstille noe.");
+  if (!tvunget && !erLordagVaktskifte && !erSondagVaktskifte) {
+    console.log("Ikke et vaktskifte-tidspunkt akkurat nå. Avslutter uten å nullstille noe.");
     return;
   }
 
   const db = admin.firestore();
   const ref = db.collection("vakt_status").doc("gjeldende");
   const snap = await ref.get();
-
   if (!snap.exists || snap.data().bekreftet !== true) {
     console.log("Vaktstatus var allerede 'ikke på vakt' – ingenting å nullstille.");
     return;
   }
-
   await ref.set(
-    {
-      bekreftet: false,
-      dato: dateStr,
-      tid: null,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    },
+    { bekreftet: false, dato: dateStr, tid: null, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
     { merge: true }
   );
-
-  console.log("Vaktstatus nullstilt til 'ikke på vakt' (rødt ikon) for alle enheter.");
+  console.log("Vaktstatus nullstilt til 'ikke på vakt' (rødt ikon) på grunn av vaktskifte.");
 }
 
 main().catch((err) => {
