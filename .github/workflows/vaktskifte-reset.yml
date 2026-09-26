@@ -1,0 +1,34 @@
+name: Nullstill vaktstatus ved vaktskifte (lørdag/søndag)
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      tving_reset:
+        description: "Nullstill vaktstatus nå (test), uavhengig av klokkeslett (ja/nei)"
+        required: false
+        default: "nei"
+
+jobs:
+  reset-vaktskifte:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sjekk ut repoet
+        uses: actions/checkout@v4
+      - name: Sett opp Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Installer avhengigheter
+        run: npm install
+      - name: Skriv Firebase-nøkkel til fil
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > service-account.json
+      - name: Nullstill vaktstatus hvis det er vaktskifte (lørdag 13:30 / søndag 15:30)
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: service-account.json
+          TVING_RESET: ${{ github.event.inputs.tving_reset == 'ja' && 'true' || 'false' }}
+        run: node vaktskifte-reset.js
+      - name: Slett nøkkelfilen
+        if: always()
+        run: rm -f service-account.json
