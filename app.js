@@ -405,6 +405,7 @@ function apneRedigeringForTime(dateStr, day, hour, eksisterendeData) {
         <button class="action-btn secondary" id="dagensRedigerAvbryt" type="button">Avbryt</button>
         <button class="action-btn" id="dagensRedigerLagre" type="button">Lagre</button>
       </div>
+      ${eksisterendeData ? '<button class="action-btn danger" id="dagensRedigerSlett" type="button" style="margin-top:8px;">Slett oppføring</button>' : ""}
     </div>
   `;
 
@@ -436,6 +437,27 @@ function apneRedigeringForTime(dateStr, day, hour, eksisterendeData) {
     apenRedigeringTime = null;
     wrap.innerHTML = "";
   });
+
+  const slettKnapp = wrap.querySelector("#dagensRedigerSlett");
+  if (slettKnapp) {
+    slettKnapp.addEventListener("click", async () => {
+      if (!db) { alert("Appen er ikke koblet til Firebase ennå."); return; }
+      if (!confirm(`Slette registreringen for kl. ${String(hour).padStart(2, "0")}:00? Dette kan ikke angres.`)) return;
+      const id = `${dateStr}_${String(hour).padStart(2, "0")}`;
+      try {
+        await db.collection("registrations").doc(id).delete();
+        apenRedigeringTime = null;
+        wrap.innerHTML = "";
+        renderDagensListe(dateStr, day, hour);
+        if (aktivSlot && aktivSlot.dateStr === dateStr && aktivSlot.hour === hour) {
+          sjekkEksisterendeRegistrering();
+        }
+      } catch (e) {
+        console.error(e);
+        alert("Klarte ikke å slette registreringen. Sjekk internettforbindelsen og prøv igjen.");
+      }
+    });
+  }
 
   wrap.querySelector("#dagensRedigerLagre").addEventListener("click", async () => {
     if (!db) { alert("Appen er ikke koblet til Firebase ennå."); return; }
@@ -921,6 +943,7 @@ function apneRedigering(btn) {
         <button class="action-btn secondary" id="redigerAvbryt" type="button">Avbryt</button>
         <button class="action-btn" id="redigerLagre" type="button">Lagre</button>
       </div>
+      <button class="action-btn danger" id="redigerSlett" type="button" style="margin-top:8px;">Slett oppføring</button>
     </div>
   `;
   rad.appendChild(celle);
@@ -951,6 +974,20 @@ function apneRedigering(btn) {
   });
 
   celle.querySelector("#redigerAvbryt").addEventListener("click", () => rad.remove());
+
+  celle.querySelector("#redigerSlett").addEventListener("click", async () => {
+    if (!confirm(`Slette registreringen for ${dato} kl. ${tid}? Dette kan ikke angres.`)) return;
+    try {
+      await db.collection("registrations").doc(id).delete();
+      rad.remove();
+      lastHistorikk();
+      const { dateStr } = osloDateParts();
+      if (dato === dateStr) renderDueBanner();
+    } catch (e) {
+      console.error(e);
+      alert("Klarte ikke å slette registreringen. Sjekk internettforbindelsen og prøv igjen.");
+    }
+  });
 
   celle.querySelector("#redigerLagre").addEventListener("click", async () => {
     const nyttAntallStr = celle.querySelector("#redigerAntall").value;
