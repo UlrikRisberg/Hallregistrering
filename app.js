@@ -265,6 +265,7 @@ let sisteAktivSlotId = null;
 let aktivSlot = null; // { dateStr, hour }
 let sisteRegistrering = null; // for angre-knapp
 let harRegistrertGjeldendeSlot = false;
+let apenRedigeringTime = null; // { dateStr, hour } for panelet i "Neste registreringer i dag"
 
 // ---------------------------------------------------------------------------
 // Rødt tall-ikon (badge) på selve app-ikonet når det er en registrering som
@@ -319,7 +320,7 @@ function renderDueBanner() {
     sub.textContent = naaste ? `Neste: ${naaste}` : "";
     card.style.display = "none";
   }
-  renderDagensListe(day, hour);
+  renderDagensListe(dateStr, day, hour);
 }
 
 function nesteRegistreringstidspunkt() {
@@ -334,22 +335,129 @@ function nesteRegistreringstidspunkt() {
   return null;
 }
 
-function renderDagensListe(day, currentHour) {
+// ---------------------------------------------------------------------------
+// "Neste registreringer i dag" – én pille per registreringstime i dag.
+// Grønn = det er ført opp antall (og evt. aktivitet) for den timen.
+// Rød = ingenting er ført ennå.
+// Alle piller kan trykkes på for å åpne et redigeringspanel for akkurat den
+// timen, uavhengig av om den er passert, pågår nå, eller kommer senere.
+// ---------------------------------------------------------------------------
+async function renderDagensListe(dateStr, day, currentHour) {
   const hours = hoursForDay(day);
-  const el = document.getElementById("dagensListe");
+  const el = document.getElementById("dagensListePills");
   if (!hours.length) {
     el.textContent = "Ingen planlagte registreringer i dag.";
     return;
   }
+
+  let registrertMap = new Map();
+  if (db) {
+    try {
+      const snap = await db.collection("registrations").where("date", "==", dateStr).get();
+      snap.docs.forEach((d) => registrertMap.set(d.data().hour, d.data()));
+    } catch (e) {
+      console.error("Klarte ikke å hente dagens registreringer", e);
+    }
+  }
+
   el.innerHTML = hours
     .map((h) => {
-      const passert = h < currentHour;
-      const naa = h === currentHour;
-      const cls = naa ? "ok" : passert ? "" : "warn";
-      const label = naa ? "nå" : passert ? "passert" : "kommer";
-      return `<span class="badge ${naa ? "ok" : ""}" style="margin:2px 4px 2px 0;">${String(h).padStart(2, "0")}:00 · ${label}</span>`;
+      const data = registrertMap.get(h);
+      const erRegistrert = !!data;
+      const cls = erRegistrert ? "registrert" : "ikke-registrert";
+      const naaMerke = h === currentHour ? " · nå" : "";
+      const tekst = erRegistrert ? `${data.count} stk` : "Ikke ført";
+      return `<button type="button" class="badge klikkbar ${cls}" data-hour="${h}" style="margin:2px 4px 2px 0;">${String(h).padStart(2, "0")}:00 · ${tekst}${naaMerke}</button>`;
     })
     .join(" ");
+
+  el.querySelectorAll(".badge[data-hour]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const h = parseInt(btn.dataset.hour, 10);
+      apneRedigeringForTime(dateStr, day, h, registrertMap.get(h) || null);
+    });
+  });
+}
+
+function apneRedigeringForTime(dateStr, day, hour, eksisterendeData) {
+  const wrap = document.getElementById("dagensListePanel");
+
+  // Trykker man på timen som allerede er åpen, lukkes panelet igjen.
+  if (apenRedigeringTime && apenRedigeringTime.dateStr === dateStr && apenRedigeringTime.hour === hour) {
+    apenRedigeringTime = null;
+    wrap.innerHTML = "";
+    return;
+  }
+  apenRedigeringTime = { dateStr, hour };
+
+  const antallNaa = eksisterendeData ? eksisterendeData.count : 0;
+  const aktiviteterNaa = eksisterendeData && eksisterendeData.activities ? eksisterendeData.activities : [];
+  const valgt = new Set(aktiviteterNaa);
+
+  wrap.innerHTML = `
+    <div class="rediger-panel">
+      <p class="muted" style="margin:0 0 8px;">Rediger kl. ${String(hour).padStart(2, "0")}:00</p>
+      <div class="aktivitet-grid" id="dagensRedigerAktivitetGrid"></div>
+      <input type="number" inputmode="numeric" min="0" class="numpad-input" id="dagensRedigerAntall" value="${antallNaa}" />
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button class="action-btn secondary" id="dagensRedigerAvbryt" type="button">Avbryt</button>
+        <button class="action-btn" id="dagensRedigerLagre" type="button">Lagre</button>
+      </div>
+    </div>
+  `;
+
+  const grid = wrap.querySelector("#dagensRedigerAktivitetGrid");
+  AKTIVITETER.forEach((navn) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "aktivitet-chip" + (valgt.has(navn) ? " valgt" : "");
+    b.textContent = navn;
+    b.addEventListener("click", () => {
+      if (valgt.has(navn)) valgt.delete(navn);
+      else valgt.add(navn);
+      b.classList.toggle("valgt");
+    });
+    grid.appendChild(b);
+  });
+
+  wrap.querySelector("#dagensRedigerAvbryt").addEventListener("click", () => {
+    apenRedigeringTime = null;
+    wrap.innerHTML = "";
+  });
+
+  wrap.querySelector("#dagensRedigerLagre").addEventListener("click", async () => {
+    if (!db) { alert("Appen er ikke koblet til Firebase ennå."); return; }
+    const nyttAntallStr = wrap.querySelector("#dagensRedigerAntall").value;
+    const nyttAntall = parseInt(nyttAntallStr, 10);
+    if (isNaN(nyttAntall) || nyttAntall < 0) {
+      alert("Skriv inn et gyldig antall (0 eller mer).");
+      return;
+    }
+    const id = `${dateStr}_${String(hour).padStart(2, "0")}`;
+    try {
+      await db.collection("registrations").doc(id).set(
+        {
+          date: dateStr,
+          hour,
+          weekday: ukedagNavn(day),
+          count: nyttAntall,
+          activities: Array.from(valgt),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      apenRedigeringTime = null;
+      wrap.innerHTML = "";
+      renderDagensListe(dateStr, day, hour);
+      // Hvis dette er timen som er aktiv akkurat nå, oppdater toppkortet også.
+      if (aktivSlot && aktivSlot.dateStr === dateStr && aktivSlot.hour === hour) {
+        sjekkEksisterendeRegistrering();
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Klarte ikke å lagre registreringen. Sjekk internettforbindelsen og prøv igjen.");
+    }
+  });
 }
 
 function renderPresets() {
