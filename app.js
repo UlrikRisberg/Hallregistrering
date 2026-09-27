@@ -892,21 +892,17 @@ async function lastHistorikk() {
       return;
     }
 
-    wrap.innerHTML = `<div style="overflow-x:auto;"><table class="hist">
-      <thead><tr><th>Dato</th><th>Ukedag</th><th>Kl.</th><th>Antall</th><th>Aktivitet(er)</th><th></th></tr></thead>
-      <tbody>${rows
-        .map(
-          (r) => `<tr>
-            <td>${r.date}</td>
-            <td>${r.weekday || ""}</td>
-            <td>${String(r.hour).padStart(2, "0")}:00</td>
-            <td>${r.count}</td>
-            <td>${(r.activities || []).join(", ")}</td>
-            <td><button class="rediger-btn" data-id="${r.id}" data-dato="${r.date}" data-time="${String(r.hour).padStart(2, "0")}:00" data-count="${r.count}" data-activities="${(r.activities || []).join(",")}">Rediger</button></td>
-          </tr>`
-        )
-        .join("")}</tbody>
-    </table></div>`;
+    wrap.innerHTML = `<div class="hist-liste">${rows
+      .map(
+        (r) => `<div class="hist-rad" data-id="${r.id}">
+            <div class="hist-rad-info">
+              <div class="hist-rad-tid">${r.date} · ${r.weekday || ""} · kl. ${String(r.hour).padStart(2, "0")}:00</div>
+              <div class="hist-rad-detalj">${r.count} personer${(r.activities && r.activities.length) ? " – " + r.activities.join(", ") : ""}</div>
+            </div>
+            <button class="rediger-btn" data-id="${r.id}" data-dato="${r.date}" data-time="${String(r.hour).padStart(2, "0")}:00" data-count="${r.count}" data-activities="${(r.activities || []).join(",")}">Rediger</button>
+          </div>`
+      )
+      .join("")}</div>`;
 
     wrap.querySelectorAll(".rediger-btn").forEach((btn) => {
       btn.addEventListener("click", () => apneRedigering(btn));
@@ -930,11 +926,9 @@ function apneRedigering(btn) {
   const aktiviteterNaa = antallNaa === 0 ? [] : (btn.dataset.activities ? btn.dataset.activities.split(",").filter(Boolean) : []);
   const valgt = new Set(aktiviteterNaa);
 
-  const rad = document.createElement("tr");
+  const rad = document.createElement("div");
   rad.className = "rediger-rad";
-  const celle = document.createElement("td");
-  celle.colSpan = 6;
-  celle.innerHTML = `
+  rad.innerHTML = `
     <div class="rediger-panel">
       <p class="muted" style="margin:0 0 8px;">Rediger ${dato} kl. ${tid}</p>
       <div class="aktivitet-grid${antallNaa === 0 ? " disabled" : ""}" id="redigerAktivitetGrid"></div>
@@ -946,10 +940,9 @@ function apneRedigering(btn) {
       <button class="action-btn danger" id="redigerSlett" type="button" style="margin-top:8px;">Slett oppføring</button>
     </div>
   `;
-  rad.appendChild(celle);
-  btn.closest("tr").after(rad);
+  btn.closest(".hist-rad").after(rad);
 
-  const grid = celle.querySelector("#redigerAktivitetGrid");
+  const grid = rad.querySelector("#redigerAktivitetGrid");
   AKTIVITETER.forEach((navn) => {
     const b = document.createElement("button");
     b.type = "button";
@@ -963,7 +956,7 @@ function apneRedigering(btn) {
     grid.appendChild(b);
   });
 
-  celle.querySelector("#redigerAntall").addEventListener("input", (e) => {
+  rad.querySelector("#redigerAntall").addEventListener("input", (e) => {
     const v = parseInt(e.target.value, 10);
     const erNull = !isNaN(v) && v === 0;
     grid.classList.toggle("disabled", erNull);
@@ -973,9 +966,9 @@ function apneRedigering(btn) {
     }
   });
 
-  celle.querySelector("#redigerAvbryt").addEventListener("click", () => rad.remove());
+  rad.querySelector("#redigerAvbryt").addEventListener("click", () => rad.remove());
 
-  celle.querySelector("#redigerSlett").addEventListener("click", async () => {
+  rad.querySelector("#redigerSlett").addEventListener("click", async () => {
     if (!confirm(`Slette registreringen for ${dato} kl. ${tid}? Dette kan ikke angres.`)) return;
     try {
       await db.collection("registrations").doc(id).delete();
@@ -989,8 +982,8 @@ function apneRedigering(btn) {
     }
   });
 
-  celle.querySelector("#redigerLagre").addEventListener("click", async () => {
-    const nyttAntallStr = celle.querySelector("#redigerAntall").value;
+  rad.querySelector("#redigerLagre").addEventListener("click", async () => {
+    const nyttAntallStr = rad.querySelector("#redigerAntall").value;
     const nyttAntall = parseInt(nyttAntallStr, 10);
     if (isNaN(nyttAntall) || nyttAntall < 0) {
       alert("Skriv inn et gyldig antall (0 eller mer).");
