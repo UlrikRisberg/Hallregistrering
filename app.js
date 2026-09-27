@@ -391,13 +391,15 @@ function apneRedigeringForTime(dateStr, day, hour, eksisterendeData) {
   apenRedigeringTime = { dateStr, hour };
 
   const antallNaa = eksisterendeData ? eksisterendeData.count : 0;
-  const aktiviteterNaa = eksisterendeData && eksisterendeData.activities ? eksisterendeData.activities : [];
+  // 0 personer kan ikke kombineres med en aktivitet – uansett hva som ligger
+  // lagret fra før, starter vi tomt hvis antallet akkurat nå er 0.
+  const aktiviteterNaa = antallNaa === 0 ? [] : (eksisterendeData && eksisterendeData.activities ? eksisterendeData.activities : []);
   const valgt = new Set(aktiviteterNaa);
 
   wrap.innerHTML = `
     <div class="rediger-panel">
       <p class="muted" style="margin:0 0 8px;">Rediger kl. ${String(hour).padStart(2, "0")}:00</p>
-      <div class="aktivitet-grid" id="dagensRedigerAktivitetGrid"></div>
+      <div class="aktivitet-grid${antallNaa === 0 ? " disabled" : ""}" id="dagensRedigerAktivitetGrid"></div>
       <input type="number" inputmode="numeric" min="0" class="numpad-input" id="dagensRedigerAntall" value="${antallNaa}" />
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button class="action-btn secondary" id="dagensRedigerAvbryt" type="button">Avbryt</button>
@@ -420,6 +422,16 @@ function apneRedigeringForTime(dateStr, day, hour, eksisterendeData) {
     grid.appendChild(b);
   });
 
+  wrap.querySelector("#dagensRedigerAntall").addEventListener("input", (e) => {
+    const v = parseInt(e.target.value, 10);
+    const erNull = !isNaN(v) && v === 0;
+    grid.classList.toggle("disabled", erNull);
+    if (erNull && valgt.size > 0) {
+      valgt.clear();
+      grid.querySelectorAll(".aktivitet-chip.valgt").forEach((b) => b.classList.remove("valgt"));
+    }
+  });
+
   wrap.querySelector("#dagensRedigerAvbryt").addEventListener("click", () => {
     apenRedigeringTime = null;
     wrap.innerHTML = "";
@@ -433,6 +445,8 @@ function apneRedigeringForTime(dateStr, day, hour, eksisterendeData) {
       alert("Skriv inn et gyldig antall (0 eller mer).");
       return;
     }
+    // 0 personer kan aldri lagres sammen med en aktivitet.
+    const aktiviteterAaLagre = nyttAntall === 0 ? [] : Array.from(valgt);
     const id = `${dateStr}_${String(hour).padStart(2, "0")}`;
     try {
       await db.collection("registrations").doc(id).set(
@@ -441,7 +455,7 @@ function apneRedigeringForTime(dateStr, day, hour, eksisterendeData) {
           hour,
           weekday: ukedagNavn(day),
           count: nyttAntall,
-          activities: Array.from(valgt),
+          activities: aktiviteterAaLagre,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
@@ -467,7 +481,15 @@ function renderPresets() {
     const b = document.createElement("button");
     b.className = "preset-btn";
     b.textContent = n;
-    b.addEventListener("click", () => registrer(n));
+    b.addEventListener("click", () => {
+      // 0 personer kan ikke kombineres med en aktivitet – fjern eventuelt
+      // valgt aktivitet med én gang før registreringen lagres.
+      if (n === 0 && valgteAktiviteter.size > 0) {
+        valgteAktiviteter = new Set();
+        renderAktiviteter();
+      }
+      registrer(n);
+    });
     grid.appendChild(b);
   });
 }
@@ -494,12 +516,25 @@ document.getElementById("btnAnnet").addEventListener("click", () => {
   document.getElementById("numpadInput").focus();
 });
 
+// 0 personer kan ikke kombineres med en aktivitet – deaktiver aktivitetsvalget
+// med én gang mens man skriver, og fjern en eventuell allerede valgt aktivitet.
+document.getElementById("numpadInput").addEventListener("input", (e) => {
+  const v = parseInt(e.target.value, 10);
+  const erNull = !isNaN(v) && v === 0;
+  document.getElementById("aktivitetGrid").classList.toggle("disabled", erNull);
+  if (erNull && valgteAktiviteter.size > 0) {
+    valgteAktiviteter = new Set();
+    renderAktiviteter();
+  }
+});
+
 document.getElementById("btnRegistrerAnnet").addEventListener("click", () => {
   const v = parseInt(document.getElementById("numpadInput").value, 10);
   if (isNaN(v) || v < 0) { alert("Skriv inn et gyldig antall (0 eller mer)."); return; }
   registrer(v);
   document.getElementById("numpadInput").value = "";
   document.getElementById("numpadWrap").style.display = "none";
+  document.getElementById("aktivitetGrid").classList.remove("disabled");
 });
 
 async function sjekkEksisterendeRegistrering() {
@@ -525,6 +560,9 @@ async function registrer(antall) {
   const id = `${aktivSlot.dateStr}_${String(aktivSlot.hour).padStart(2, "0")}`;
   const ref = db.collection("registrations").doc(id);
   let forrigeVerdi = null;
+  // 0 personer kan aldri lagres sammen med en aktivitet, uansett hva som
+  // eventuelt står valgt i grensesnittet.
+  const aktiviteterAaLagre = antall === 0 ? [] : Array.from(valgteAktiviteter);
   try {
     const eksisterende = await ref.get();
     if (eksisterende.exists) forrigeVerdi = eksisterende.data().count;
@@ -534,7 +572,7 @@ async function registrer(antall) {
         hour: aktivSlot.hour,
         weekday: ukedagNavn(aktivSlot.day),
         count: antall,
-        activities: Array.from(valgteAktiviteter),
+        activities: aktiviteterAaLagre,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -865,7 +903,9 @@ function apneRedigering(btn) {
   const dato = btn.dataset.dato;
   const tid = btn.dataset.time;
   const antallNaa = parseInt(btn.dataset.count, 10) || 0;
-  const aktiviteterNaa = btn.dataset.activities ? btn.dataset.activities.split(",").filter(Boolean) : [];
+  // 0 personer kan ikke kombineres med en aktivitet – uansett hva som ligger
+  // lagret fra før, starter vi tomt hvis antallet akkurat nå er 0.
+  const aktiviteterNaa = antallNaa === 0 ? [] : (btn.dataset.activities ? btn.dataset.activities.split(",").filter(Boolean) : []);
   const valgt = new Set(aktiviteterNaa);
 
   const rad = document.createElement("tr");
@@ -875,7 +915,7 @@ function apneRedigering(btn) {
   celle.innerHTML = `
     <div class="rediger-panel">
       <p class="muted" style="margin:0 0 8px;">Rediger ${dato} kl. ${tid}</p>
-      <div class="aktivitet-grid" id="redigerAktivitetGrid"></div>
+      <div class="aktivitet-grid${antallNaa === 0 ? " disabled" : ""}" id="redigerAktivitetGrid"></div>
       <input type="number" inputmode="numeric" min="0" class="numpad-input" id="redigerAntall" value="${antallNaa}" />
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button class="action-btn secondary" id="redigerAvbryt" type="button">Avbryt</button>
@@ -900,6 +940,16 @@ function apneRedigering(btn) {
     grid.appendChild(b);
   });
 
+  celle.querySelector("#redigerAntall").addEventListener("input", (e) => {
+    const v = parseInt(e.target.value, 10);
+    const erNull = !isNaN(v) && v === 0;
+    grid.classList.toggle("disabled", erNull);
+    if (erNull && valgt.size > 0) {
+      valgt.clear();
+      grid.querySelectorAll(".aktivitet-chip.valgt").forEach((b) => b.classList.remove("valgt"));
+    }
+  });
+
   celle.querySelector("#redigerAvbryt").addEventListener("click", () => rad.remove());
 
   celle.querySelector("#redigerLagre").addEventListener("click", async () => {
@@ -909,11 +959,13 @@ function apneRedigering(btn) {
       alert("Skriv inn et gyldig antall (0 eller mer).");
       return;
     }
+    // 0 personer kan aldri lagres sammen med en aktivitet.
+    const aktiviteterAaLagre = nyttAntall === 0 ? [] : Array.from(valgt);
     try {
       await db.collection("registrations").doc(id).set(
         {
           count: nyttAntall,
-          activities: Array.from(valgt),
+          activities: aktiviteterAaLagre,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
