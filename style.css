@@ -383,6 +383,14 @@ input:checked + .slider::before { transform: translateX(20px); }
 }
 .badge.ok { background: rgba(var(--accent-yellow-rgb), 0.18); color: var(--accent-yellow); }
 .badge.warn { background: rgba(var(--accent-blue-rgb), 0.18); color: var(--accent); }
+.badge.klikkbar {
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.badge.klikkbar:active { transform: scale(0.95); }
+.badge.registrert { background: rgba(34, 197, 94, 0.18); color: #22c55e; }
+.badge.ikke-registrert { background: rgba(239, 68, 68, 0.18); color: var(--danger); }
 
 .muted { color: var(--text-dim); font-size: 13px; line-height: 1.5; }
 a { color: var(--accent); }
